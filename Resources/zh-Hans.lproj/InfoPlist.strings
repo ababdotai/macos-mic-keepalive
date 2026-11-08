@@ -1,0 +1,2 @@
+"CFBundleDisplayName" = "麦克风保活";
+"NSMicrophoneUsageDescription" = "保持选定麦克风活跃并显示实时电平。音频即时丢弃，不保存、不上传。";

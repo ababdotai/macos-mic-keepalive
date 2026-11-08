@@ -1,0 +1,2 @@
+"CFBundleDisplayName" = "Mic KeepAlive";
+"NSMicrophoneUsageDescription" = "Keep your selected microphone active and show its input level. Audio is discarded, never saved or uploaded.";

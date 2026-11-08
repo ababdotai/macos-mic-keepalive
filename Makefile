@@ -2,7 +2,7 @@ APP := .build/Mic KeepAlive.app
 SWIFTC := xcrun swiftc
 FLAGS := -target $(shell uname -m)-apple-macosx14.0 -swift-version 5 -framework AppKit -framework AVFoundation
 
-.PHONY: build run test clean
+.PHONY: build run test release clean
 
 build:
 	mkdir -p "$(APP)/Contents/MacOS"
@@ -24,6 +24,9 @@ test:
 	.build/MicKeepAlive-test --localization-report -AppleLanguages '(en)'
 	.build/MicKeepAlive-test --localization-report -AppleLanguages '(zh-Hans)'
 	.build/MicKeepAlive-test --localization-report -AppleLanguages '(zh-Hant)'
+
+release: test
+	python3 scripts/package_release.py
 
 clean:
 	rm -rf .build

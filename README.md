@@ -11,6 +11,7 @@
 
 <p align="center">
   macOS 14+ · Native Swift · English / 中文<br/>
+  <a href="https://github.com/ababdotai/macos-mic-keepalive/releases/latest/download/Mic-KeepAlive-universal.dmg"><strong>Download for macOS</strong></a> ·
   <a href="#why">Why</a> · <a href="#how">How</a> · <a href="#what-you-get">What you get</a>
 </p>
 
@@ -26,11 +27,11 @@ With your MacBook closed and an external display connected, a Bluetooth mic may 
 
 Keeps an audio stream open on your chosen microphone. **No recordings. No uploads.**
 
-```sh
-make run
-```
+**[Download the app](https://github.com/ababdotai/macos-mic-keepalive/releases/latest/download/Mic-KeepAlive-universal.dmg)** · macOS 14+ · Apple Silicon & Intel · No compilation needed.
 
-Requires Xcode Command Line Tools. Allow microphone access, choose your mic, and start keep-alive. Select the same mic in the dictation app you use to talk to your coding agent.
+Open the DMG, drag **Mic KeepAlive** into **Applications**, and launch it. Allow microphone access, then choose your mic and start keep-alive from the menu bar. Use the same mic in your dictation app.
+
+<sub>Not Apple-notarized. If macOS blocks the first launch, use System Settings → Privacy & Security → Open Anyway for this trusted download. [Apple’s instructions](https://support.apple.com/en-us/102445). [ZIP alternative](https://github.com/ababdotai/macos-mic-keepalive/releases/latest/download/Mic-KeepAlive-universal.zip).</sub>
 
 # What you get
 
@@ -42,4 +43,4 @@ Requires Xcode Command Line Tools. Allow microphone access, choose your mic, and
 
 <sub>Bluetooth audio quality and battery life may be affected. Device results vary; DJI-specific behavior is not yet verified. This does not fix transcription or network delays.</sub>
 
-<sub>Development: <code>make test</code> · <code>make clean</code></sub>
+<sub>Build from source (Xcode Command Line Tools): <code>make run</code> · Test: <code>make test</code> · Package: <code>make release</code></sub>

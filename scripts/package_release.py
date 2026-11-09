@@ -32,7 +32,7 @@ def main():
         binary = BUILD / f'MicKeepAlive-{arch}'
         run('xcrun', 'swiftc', '-target', f'{arch}-apple-macosx14.0',
             '-swift-version', '5', '-O', '-framework', 'AppKit',
-            '-framework', 'AVFoundation', ROOT / 'Localization.swift',
+            '-framework', 'AVFoundation', '-framework', 'ServiceManagement', ROOT / 'Localization.swift', ROOT / 'RecoveryPolicy.swift',
             ROOT / 'main.swift', '-o', binary)
         slices.append(binary)
     binary = macos / 'MicKeepAlive'

@@ -31,6 +31,10 @@ Keeps an audio stream open on your chosen microphone. **No recordings. No upload
 
 Open the DMG, drag **Mic KeepAlive** into **Applications**, and launch it. Allow microphone access, then choose your mic and start keep-alive from the menu bar. Use the same mic in your dictation app.
 
+**New in [1.3.0](https://github.com/ababdotai/macos-mic-keepalive/releases/tag/v1.3.0):** automatic recovery after sleep or reconnect, optional login startup, and clearer device status.
+
+Enable **Launch at login** and/or **Restore previous keep-alive on launch** in the menu if needed. Restore applies only when keep-alive was on at the previous exit. macOS may ask you to approve the login item.
+
 <sub>Not Apple-notarized. If macOS blocks the first launch, use System Settings → Privacy & Security → Open Anyway for this trusted download. [Apple’s instructions](https://support.apple.com/en-us/102445). [ZIP alternative](https://github.com/ababdotai/macos-mic-keepalive/releases/latest/download/Mic-KeepAlive-universal.zip).</sub>
 
 # What you get
@@ -39,7 +43,9 @@ Open the DMG, drag **Mic KeepAlive** into **Applications**, and launch it. Allow
 - **Bluetooth-first:** use AirPods or a DJI Bluetooth mic. USB and other macOS inputs work too.
 - **Live levels:** a small animated meter, no menu bar text.
 - **Your language:** follows macOS—English or Chinese.
-- **Your control:** stop anytime; disconnecting stops capture. No auto-start.
+- **Automatic recovery:** sleep or disconnect pauses capture; wake or reconnect the same mic to resume. Stop cancels recovery.
+- **Optional startup:** launch at login and restore previous keep-alive independently. Both default off.
+- **Clear status:** see the selected device, healthy audio, waiting for reconnect, or retrying.
 
 <sub>Bluetooth audio quality and battery life may be affected. Device results vary; DJI-specific behavior is not yet verified. This does not fix transcription or network delays.</sub>
 

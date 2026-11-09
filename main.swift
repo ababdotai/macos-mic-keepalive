@@ -1,5 +1,6 @@
 import AppKit
 import AVFoundation
+import ServiceManagement
 
 // Buffers are discarded; retain only a timestamp and scalar meter value.
 func normalizedLevel(_ decibels: Float) -> Double {
@@ -40,191 +41,329 @@ final class SampleSink: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     }
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var item: NSStatusItem!
     private var info: NSMenuItem!
+    private var deviceInfo: NSMenuItem!
     private var toggle: NSMenuItem!
+    private var retry: NSMenuItem!
+    private var login: NSMenuItem!
+    private var restore: NSMenuItem!
+    private var loginApproval: NSMenuItem!
     private var deviceMenu: NSMenu!
+    private var intent = KeepAliveIntent()
+    private var available: [AVCaptureDevice] = []
+    private var selectedName: String?
     private let session = AVCaptureSession()
     private let sink = SampleSink()
     private let captureQueue = DispatchQueue(label: "local.mic.keepalive.capture")
     private let sampleQueue = DispatchQueue(label: "local.mic.keepalive.discard")
-    private var selectedID: String?
+    private let gate = CaptureGeneration()
     private var activeID: String?
-    private var enabled = false
     private var busy = false
-    private var generation = 0
+    private var requestingPermission = false
+    private var terminating = false
+    private var startedAt: TimeInterval = 0
+    private var retryAt: TimeInterval = 0
+    private var failures = 0
+    private var lastError: String?
     private var timer: Timer?
     private var meterTimer: Timer?
+    private var observers: [(NotificationCenter, NSObjectProtocol)] = []
     private var levels = Array(repeating: 0.0, count: 5)
-    private var message = L("stopped")
-
-    private func devices() -> [AVCaptureDevice] {
-        AVCaptureDevice.DiscoverySession(deviceTypes: [.microphone, .external], mediaType: .audio, position: .unspecified).devices
+    private var now: TimeInterval { ProcessInfo.processInfo.systemUptime }
+    private var authorized: Bool { AVCaptureDevice.authorizationStatus(for: .audio) == .authorized }
+    private var readiness: KeepAliveIntent.Readiness {
+        intent.readiness(availableIDs: Set(available.map(\.uniqueID)), authorized: authorized)
     }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        let defaults = UserDefaults.standard
+        intent = KeepAliveIntent(selectedID: defaults.string(forKey: "selectedMicrophoneID"),
+                                 restoreOnLaunch: defaults.bool(forKey: "restoreKeepAliveOnLaunch"),
+                                 wasRequested: defaults.bool(forKey: "keepAliveRequested"))
+        defaults.set(intent.requested, forKey: "keepAliveRequested")
+        selectedName = defaults.string(forKey: "selectedMicrophoneName")
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        let menu = NSMenu()
-        info = NSMenuItem(title: message, action: nil, keyEquivalent: "")
-        menu.addItem(info)
-        toggle = NSMenuItem(title: L("start"), action: #selector(toggleCapture), keyEquivalent: "")
-        toggle.target = self; menu.addItem(toggle)
+        let menu = NSMenu(); menu.autoenablesItems = false; menu.delegate = self
+        deviceInfo = NSMenuItem(title: "", action: nil, keyEquivalent: ""); deviceInfo.isEnabled = false
+        info = NSMenuItem(title: "", action: nil, keyEquivalent: ""); info.isEnabled = false
+        menu.addItem(deviceInfo); menu.addItem(info); menu.addItem(.separator())
+        func action(_ key: String, _ selector: Selector) -> NSMenuItem {
+            let row = NSMenuItem(title: L(key), action: selector, keyEquivalent: "")
+            row.target = self; menu.addItem(row); return row
+        }
+        toggle = action("start", #selector(toggleCapture))
+        retry = action("retry_now", #selector(retryCapture))
         let devicesItem = NSMenuItem(title: L("choose"), action: nil, keyEquivalent: "")
-        deviceMenu = NSMenu(); devicesItem.submenu = deviceMenu; menu.addItem(devicesItem)
+        deviceMenu = NSMenu(); deviceMenu.autoenablesItems = false
+        devicesItem.submenu = deviceMenu; menu.addItem(devicesItem)
         menu.addItem(.separator())
-        let help = NSMenuItem(title: L("help"), action: #selector(showHelp), keyEquivalent: "")
-        help.target = self; menu.addItem(help)
-        let quit = NSMenuItem(title: L("quit"), action: #selector(quitApp), keyEquivalent: "q")
-        quit.target = self; menu.addItem(quit)
+        login = action("launch_at_login", #selector(toggleLogin))
+        loginApproval = action("login_approval", #selector(openLoginSettings))
+        restore = action("restore_on_launch", #selector(toggleRestore))
+        menu.addItem(.separator())
+        _ = action("help", #selector(showHelp))
+        let quit = action("quit", #selector(quitApp)); quit.keyEquivalent = "q"
         item.menu = menu
-        selectedID = UserDefaults.standard.string(forKey: "selectedMicrophoneID")
-        refreshDevices(); updateUI()
+
+        let workspace = NSWorkspace.shared.notificationCenter
+        observe(workspace, NSWorkspace.willSleepNotification) { app in
+            app.intent.sleeping = true; app.reconcile()
+        }
+        observe(workspace, NSWorkspace.didWakeNotification) { app in
+            app.intent.sleeping = false; app.retryAt = 0; app.failures = 0; app.reconcile()
+        }
+        for notification in [AVCaptureDevice.wasConnectedNotification, AVCaptureDevice.wasDisconnectedNotification] {
+            observe(.default, notification) { $0.reconcile() }
+        }
+        observe(.default, NSApplication.didBecomeActiveNotification) { $0.updateUI() }
         meterTimer = Timer(timeInterval: 0.05, repeats: true) { [weak self] _ in self?.drawMeter() }
         RunLoop.main.add(meterTimer!, forMode: .common)
-        timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in self?.tick() }
-        if !UserDefaults.standard.bool(forKey: "hasShownHelp") {
-            UserDefaults.standard.set(true, forKey: "hasShownHelp")
-            showHelp()
+        timer = Timer(timeInterval: 2, repeats: true) { [weak self] _ in self?.reconcile() }
+        RunLoop.main.add(timer!, forMode: .common)
+        reconcile()
+        if !defaults.bool(forKey: "hasShownHelp") {
+            defaults.set(true, forKey: "hasShownHelp"); showHelp()
         }
     }
+    private func observe(_ center: NotificationCenter, _ name: Notification.Name, handler: @escaping (AppDelegate) -> Void) {
+        let token = center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+            guard let self, !self.terminating else { return }; handler(self)
+        }
+        observers.append((center, token))
+    }
+    func menuWillOpen(_ menu: NSMenu) { reconcile() }
     private func refreshDevices() {
-        let available = devices()
-        if selectedID == nil {
-            selectedID = AVCaptureDevice.default(for: .audio)?.uniqueID ?? available.first?.uniqueID
+        available = AVCaptureDevice.DiscoverySession(deviceTypes: [.microphone, .external], mediaType: .audio, position: .unspecified).devices
+        if intent.selectedID == nil && !intent.requested {
+            intent.selectedID = AVCaptureDevice.default(for: .audio)?.uniqueID ?? available.first?.uniqueID
+        }
+        if let device = available.first(where: { $0.uniqueID == intent.selectedID }) {
+            selectedName = device.localizedName
+            UserDefaults.standard.set(device.uniqueID, forKey: "selectedMicrophoneID")
+            UserDefaults.standard.set(device.localizedName, forKey: "selectedMicrophoneName")
         }
         deviceMenu.removeAllItems()
-        if let selectedID, !available.contains(where: { $0.uniqueID == selectedID }) {
-            deviceMenu.addItem(NSMenuItem(title: L("missing"), action: nil, keyEquivalent: ""))
+        if let id = intent.selectedID, !available.contains(where: { $0.uniqueID == id }) {
+            let row = NSMenuItem(title: L("missing"), action: nil, keyEquivalent: "")
+            row.isEnabled = false; deviceMenu.addItem(row)
         }
-        if available.isEmpty { deviceMenu.addItem(NSMenuItem(title: L("none"), action: nil, keyEquivalent: "")) }
+        if available.isEmpty {
+            let row = NSMenuItem(title: L("none"), action: nil, keyEquivalent: "")
+            row.isEnabled = false; deviceMenu.addItem(row)
+        }
         for device in available {
             let row = NSMenuItem(title: device.localizedName, action: #selector(selectDevice(_:)), keyEquivalent: "")
             row.target = self; row.representedObject = device.uniqueID
-            row.state = selectedID == device.uniqueID ? .on : .off
-            row.isEnabled = !enabled && !busy
+            row.state = intent.selectedID == device.uniqueID ? .on : .off
+            row.isEnabled = !intent.requested && !busy && !requestingPermission
             deviceMenu.addItem(row)
         }
-        deviceMenu.autoenablesItems = false
     }
     @objc private func selectDevice(_ sender: NSMenuItem) {
-        guard !enabled && !busy else { return }
-        selectedID = sender.representedObject as? String
-        UserDefaults.standard.set(selectedID, forKey: "selectedMicrophoneID")
-        refreshDevices()
+        guard !intent.requested && !busy && !requestingPermission else { return }
+        intent.selectedID = sender.representedObject as? String
+        UserDefaults.standard.set(intent.selectedID, forKey: "selectedMicrophoneID")
+        failures = 0; lastError = nil; reconcile()
+    }
+    private func setRequested(_ value: Bool) {
+        intent.requested = value
+        UserDefaults.standard.set(value, forKey: "keepAliveRequested")
+        retryAt = 0; failures = 0; lastError = nil
+        reconcile()
     }
     @objc private func toggleCapture() {
-        guard !busy else { return }
-        if enabled { stop(L("stopped")); return }
+        if intent.requested { setRequested(false); return }
+        guard !requestingPermission else { return }
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
-        case .authorized: start()
+        case .authorized: setRequested(true)
         case .notDetermined:
-            busy = true; updateUI()
-            AVCaptureDevice.requestAccess(for: .audio) { granted in
+            requestingPermission = true; updateUI()
+            AVCaptureDevice.requestAccess(for: .audio) { [weak self] granted in
                 DispatchQueue.main.async {
-                    self.busy = false
-                    if granted { self.start() }
-                    else { self.message = L("denied"); self.updateUI() }
+                    guard let self, !self.terminating else { return }
+                    self.requestingPermission = false
+                    if granted { self.setRequested(true) }
+                    else { self.showError(L("denied")); self.updateUI() }
+                }
+            }
+        default: openMicrophoneSettings()
+        }
+    }
+    private func openMicrophoneSettings() {
+        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")!)
+    }
+    @objc private func retryCapture() {
+        guard intent.requested else { return }
+        guard authorized else { openMicrophoneSettings(); return }
+        retryAt = 0; failures = 0; lastError = nil
+        if activeID != nil { suspendCapture() } else { reconcile() }
+    }
+    private func reconcile() {
+        guard !terminating else { return }
+        refreshDevices()
+        switch readiness {
+        case .ready(let id):
+            if !busy {
+                if activeID != nil {
+                    if !sink.recent() && now - startedAt > 10 {
+                        recordFailure(L("no_audio")); suspendCapture()
+                    } else if sink.recent() { failures = 0; lastError = nil }
+                } else if now >= retryAt, let device = available.first(where: { $0.uniqueID == id }) {
+                    startCapture(device)
                 }
             }
         default:
-            message = L("permission"); updateUI()
-            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")!)
+            // Clear an in-flight start too. Completion from its old generation is ignored.
+            if activeID != nil { suspendCapture() }
         }
+        updateUI()
     }
-    private func start() {
-        guard let device = devices().first(where: { $0.uniqueID == selectedID }) else {
-            message = L("connect"); refreshDevices(); updateUI(); return
-        }
-        UserDefaults.standard.set(device.uniqueID, forKey: "selectedMicrophoneID")
-        generation += 1; let ticket = generation
-        busy = true; enabled = true; activeID = device.uniqueID
-        sink.reset(); levels = Array(repeating: 0, count: 5); message = L("starting", device.localizedName); updateUI()
+    private func startCapture(_ device: AVCaptureDevice) {
+        let ticket = gate.advance()
+        activeID = device.uniqueID; busy = true; startedAt = now
         captureQueue.async {
+            guard self.gate.contains(ticket) else { return }
             do {
+                self.clearSession()
                 let input = try AVCaptureDeviceInput(device: device)
                 let output = AVCaptureAudioDataOutput()
                 output.setSampleBufferDelegate(self.sink, queue: self.sampleQueue)
                 self.session.beginConfiguration()
                 guard self.session.canAddInput(input) else {
-                    self.session.commitConfiguration(); throw NSError(domain: "KeepAlive", code: 1, userInfo: [NSLocalizedDescriptionKey: L("input_error")])
+                    self.session.commitConfiguration()
+                    throw NSError(domain: "KeepAlive", code: 1, userInfo: [NSLocalizedDescriptionKey: L("input_error")])
                 }
                 self.session.addInput(input)
                 guard self.session.canAddOutput(output) else {
-                    self.session.removeInput(input); self.session.commitConfiguration()
+                    self.session.commitConfiguration()
                     throw NSError(domain: "KeepAlive", code: 2, userInfo: [NSLocalizedDescriptionKey: L("stream_error")])
                 }
                 self.session.addOutput(output); self.session.commitConfiguration()
+                guard self.gate.contains(ticket) else { self.clearSession(); return }
                 self.session.startRunning()
+                guard self.session.isRunning else {
+                    throw NSError(domain: "KeepAlive", code: 3, userInfo: [NSLocalizedDescriptionKey: L("stream_error")])
+                }
                 DispatchQueue.main.async {
-                    guard self.generation == ticket else { return }
-                    self.busy = false; self.message = L("waiting"); self.updateUI()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
-                        if self.generation == ticket && self.enabled && !self.sink.recent() {
-                            self.stop(L("no_audio"))
-                        }
-                    }
+                    guard self.gate.contains(ticket), !self.terminating else { return }
+                    self.busy = false; self.startedAt = self.now; self.reconcile()
                 }
             } catch {
+                self.clearSession()
                 DispatchQueue.main.async {
-                    guard self.generation == ticket else { return }
-                    self.stop(L("failed", error.localizedDescription))
+                    guard self.gate.contains(ticket), !self.terminating else { return }
+                    self.activeID = nil; self.busy = false
+                    self.recordFailure(error.localizedDescription); self.reconcile()
                 }
             }
         }
     }
-    private func stop(_ reason: String) {
-        generation += 1; enabled = false; busy = true; activeID = nil
-        message = reason; updateUI()
+    /// Only call on captureQueue. Drain old callbacks before allowing another session.
+    private func clearSession() {
+        session.stopRunning()
+        session.beginConfiguration()
+        for output in session.outputs {
+            (output as? AVCaptureAudioDataOutput)?.setSampleBufferDelegate(nil, queue: nil)
+            session.removeOutput(output)
+        }
+        for input in session.inputs { session.removeInput(input) }
+        session.commitConfiguration()
+        sampleQueue.sync { self.sink.reset() }
+    }
+    private func suspendCapture() {
+        let ticket = gate.advance()
+        activeID = nil; busy = true
         captureQueue.async {
-            self.session.stopRunning()
-            self.session.beginConfiguration()
-            for input in self.session.inputs { self.session.removeInput(input) }
-            for output in self.session.outputs { self.session.removeOutput(output) }
-            self.session.commitConfiguration(); self.sink.reset()
-            DispatchQueue.main.async { self.busy = false; self.updateUI(); self.refreshDevices() }
+            self.clearSession()
+            DispatchQueue.main.async {
+                guard self.gate.contains(ticket), !self.terminating else { return }
+                self.busy = false; self.reconcile()
+            }
         }
     }
-    private func tick() {
-        refreshDevices()
-        if enabled && !busy {
-            if !devices().contains(where: { $0.uniqueID == activeID }) {
-                stop(L("disconnected")); return
-            }
-            message = sink.recent() ? L("active") : L("interrupted")
+    private func recordFailure(_ error: String) {
+        failures += 1; lastError = error
+        retryAt = now + min(30, pow(2, Double(min(failures, 5))))
+    }
+    private var message: String {
+        switch readiness {
+        case .stopped: return busy ? L("stopping") : L("stopped")
+        case .sleeping: return L("paused_sleep")
+        case .missingDevice: return L("waiting_device")
+        case .needsPermission: return L("permission")
+        case .ready:
+            if busy { return L("starting", selectedName ?? L("unknown_device")) }
+            if activeID != nil { return sink.recent() ? L("active") : L("waiting") }
+            if let lastError { return L("retry_error", String(max(0, Int(ceil(retryAt - now)))), lastError) }
+            return L("waiting")
         }
-        updateUI()
     }
     private func updateUI() {
-        info.title = message
-        toggle.title = enabled ? L("stop") : L("start")
-        toggle.isEnabled = !busy
-        item.menu?.autoenablesItems = false
+        guard item != nil else { return }
+        let connected = available.contains(where: { $0.uniqueID == intent.selectedID })
+        let name = selectedName ?? (intent.selectedID == nil ? L("unknown_device") : L("saved_device"))
+        deviceInfo.title = L("device_connection", name, connected ? L("connected") : L("offline"))
+        info.title = L("current_status", message)
+        toggle.title = intent.requested ? L("stop") : L("start")
+        toggle.isEnabled = !requestingPermission
+        retry.isHidden = !intent.requested
+        retry.isEnabled = !busy && !intent.sleeping
+        restore.state = UserDefaults.standard.bool(forKey: "restoreKeepAliveOnLaunch") ? .on : .off
+        let status = SMAppService.mainApp.status
+        login.state = status == .enabled ? .on : (status == .requiresApproval ? .mixed : .off)
+        loginApproval.isHidden = status != .requiresApproval
+        login.title = status == .requiresApproval ? L("login_pending") : L("launch_at_login")
         item.button?.title = ""
-        item.button?.setAccessibilityLabel(message)
+        item.button?.setAccessibilityLabel(deviceInfo.title + ". " + info.title)
+        item.button?.toolTip = deviceInfo.title + "\n" + info.title
         drawMeter()
-        item.button?.toolTip = L("tooltip", message)
     }
     private func drawMeter() {
-        if enabled && !busy && sink.recent() {
-            levels.removeFirst(); levels.append(sink.meter())
-            item.button?.image = meterImage(levels)
+        if intent.requested && !intent.sleeping && activeID != nil && !busy && sink.recent() {
+            levels.removeFirst(); levels.append(sink.meter()); item.button?.image = meterImage(levels)
         } else {
             levels = Array(repeating: 0, count: 5)
-            item.button?.image = NSImage(systemSymbolName: enabled ? "mic.badge.ellipsis" : "mic.slash", accessibilityDescription: message)
+            item.button?.image = NSImage(systemSymbolName: intent.requested ? "pause.circle" : "mic.slash", accessibilityDescription: message)
         }
     }
-    @objc private func showHelp() {
+    @objc private func toggleRestore() {
+        let defaults = UserDefaults.standard
+        defaults.set(!defaults.bool(forKey: "restoreKeepAliveOnLaunch"), forKey: "restoreKeepAliveOnLaunch")
+        // Only affects the next launch. Never activates the mic just by changing a preference.
+        updateUI()
+    }
+    @objc private func toggleLogin() {
+        do {
+            switch SMAppService.mainApp.status {
+            case .enabled, .requiresApproval: try SMAppService.mainApp.unregister()
+            default:
+                let path = Bundle.main.bundleURL.standardizedFileURL.path
+                let userApps = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications").path + "/"
+                guard path.hasPrefix("/Applications/") || path.hasPrefix(userApps) else {
+                    showError(L("install_for_login")); return
+                }
+                try SMAppService.mainApp.register()
+            }
+        } catch { showError(L("login_error", error.localizedDescription)) }
+        updateUI()
+    }
+    @objc private func openLoginSettings() { SMAppService.openSystemSettingsLoginItems() }
+    private func showError(_ text: String) {
         NSApp.activate(ignoringOtherApps: true)
-        let alert = NSAlert()
-        alert.messageText = L("title")
-        alert.informativeText = L("instructions")
+        let alert = NSAlert(); alert.messageText = L("title"); alert.informativeText = text
         alert.addButton(withTitle: L("ok")); alert.runModal()
     }
+    @objc private func showHelp() { showError(L("instructions")) }
     @objc private func quitApp() { NSApp.terminate(nil) }
     func applicationWillTerminate(_ notification: Notification) {
+        terminating = true; gate.advance()
         timer?.invalidate(); meterTimer?.invalidate()
-        captureQueue.sync { self.session.stopRunning() }
+        for (center, token) in observers { center.removeObserver(token) }
+        // Preserve user intent for the optional next-launch restore, but release capture now.
+        captureQueue.sync { self.clearSession() }
     }
 }
 if CommandLine.arguments.contains("--localization-report") {
@@ -234,6 +373,7 @@ if CommandLine.arguments.contains("--localization-report") {
 }
 if CommandLine.arguments.contains("--self-test") {
     L10n.validateResources()
+    runRecoveryTests()
     assert(normalizedLevel(-160) == 0)
     assert(normalizedLevel(-60) == 0)
     assert(normalizedLevel(-30) == 0.5)

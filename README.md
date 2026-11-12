@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.png" alt="Mic KeepAlive logo" width="128" />
+  <img src="assets/logo.png" alt="Mic KeepAlive — pearlescent microphone on a black tile" width="128" />
 </p>
 
 <h2 align="center">macos-mic-keepalive</h2>

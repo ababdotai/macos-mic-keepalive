@@ -5,6 +5,7 @@ import plistlib
 import shutil
 import subprocess
 from pathlib import Path
+from build_icon import build_icon
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILD = ROOT / '.build' / 'release'
@@ -32,8 +33,8 @@ def main():
         binary = BUILD / f'MicKeepAlive-{arch}'
         run('xcrun', 'swiftc', '-target', f'{arch}-apple-macosx14.0',
             '-swift-version', '5', '-O', '-framework', 'AppKit',
-            '-framework', 'AVFoundation', '-framework', 'ServiceManagement', ROOT / 'Localization.swift', ROOT / 'RecoveryPolicy.swift',
-            ROOT / 'main.swift', '-o', binary)
+            '-framework', 'AVFoundation', '-framework', 'ServiceManagement', '-framework', 'CoreAudio', ROOT / 'Localization.swift', ROOT / 'RecoveryPolicy.swift',
+            ROOT / 'SystemAudio.swift', ROOT / 'main.swift', '-o', binary)
         slices.append(binary)
     binary = macos / 'MicKeepAlive'
     run('xcrun', 'lipo', '-create', *slices, '-output', binary)
@@ -41,16 +42,8 @@ def main():
     if set(archs) != {'arm64', 'x86_64'}:
         raise RuntimeError(f'Unexpected binary architectures: {archs}')
 
-    iconset = BUILD / 'AppIcon.iconset'
-    iconset.mkdir()
-    for size in (16, 32, 128, 256, 512):
-        for scale in (1, 2):
-            suffix = '@2x' if scale == 2 else ''
-            run('sips', '-z', size * scale, size * scale, ROOT / 'assets/logo.png',
-                '--out', iconset / f'icon_{size}x{size}{suffix}.png')
-    run('iconutil', '-c', 'icns', iconset, '-o', resources / 'AppIcon.icns')
-    info['CFBundleIconFile'] = 'AppIcon'
     (APP / 'Contents' / 'Info.plist').write_bytes(plistlib.dumps(info))
+    build_icon(APP)
     run('codesign', '--force', '--sign', '-', APP)
     run('codesign', '--verify', '--strict', '--verbose=2', APP)
     run(binary, '--localization-report', '-AppleLanguages', '(en)')

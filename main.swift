@@ -7,15 +7,52 @@ func normalizedLevel(_ decibels: Float) -> Double {
     guard decibels.isFinite else { return 0 }
     return min(1, max(0, (Double(decibels) + 60) / 60))
 }
-func meterImage(_ levels: [Double]) -> NSImage {
-    let image = NSImage(size: NSSize(width: 36, height: 18), flipped: false) { _ in
+enum MicIndicator: String, CaseIterable {
+    case disconnected, standby, waiting, quiet, signal
+    static func resolve(connected: Bool, requested: Bool, healthy: Bool, level: Double) -> MicIndicator {
+        guard connected else { return .disconnected }
+        guard requested else { return .standby }
+        guard healthy else { return .waiting }
+        return level > 0.08 ? .signal : .quiet
+    }
+    var textKey: String { "indicator_" + rawValue }
+}
+func meterImage(_ levels: [Double], state: MicIndicator = .signal) -> NSImage {
+    let width: CGFloat = state == .standby ? 16 : 26
+    let image = NSImage(size: NSSize(width: width, height: 18), flipped: false) { _ in
+        NSColor.black.setStroke()
         NSColor.black.setFill()
-        if let mic = NSImage(systemSymbolName: "mic.fill", accessibilityDescription: nil) {
-            mic.draw(in: NSRect(x: 0, y: 3, width: 10, height: 12))
+        let capsule = NSBezierPath(roundedRect: NSRect(x: 5, y: 7, width: 6, height: 10), xRadius: 3, yRadius: 3)
+        capsule.lineWidth = 1.2
+        capsule.stroke()
+        if state == .quiet || state == .signal {
+            // Fill the microphone itself: no separate bars or reserved empty space.
+            let level = min(1, max(0, levels.last ?? 0))
+            NSGraphicsContext.saveGraphicsState()
+            capsule.addClip()
+            NSRect(x: 5, y: 7, width: 6, height: 10 * level).fill()
+            NSGraphicsContext.restoreGraphicsState()
         }
-        for (index, level) in levels.suffix(5).enumerated() {
-            let height = max(2, 16 * level)
-            NSBezierPath(roundedRect: NSRect(x: 12 + Double(index) * 5, y: (18 - height) / 2, width: 3, height: height), xRadius: 1.5, yRadius: 1.5).fill()
+        let cradle = NSBezierPath()
+        cradle.lineWidth = 1.2; cradle.lineCapStyle = .round
+        cradle.move(to: NSPoint(x: 2.5, y: 10))
+        cradle.line(to: NSPoint(x: 2.5, y: 8))
+        cradle.curve(to: NSPoint(x: 13.5, y: 8), controlPoint1: NSPoint(x: 2.5, y: 1.5), controlPoint2: NSPoint(x: 13.5, y: 1.5))
+        cradle.line(to: NSPoint(x: 13.5, y: 10))
+        cradle.move(to: NSPoint(x: 8, y: 3))
+        cradle.line(to: NSPoint(x: 8, y: 1))
+        cradle.move(to: NSPoint(x: 5.5, y: 1))
+        cradle.line(to: NSPoint(x: 10.5, y: 1))
+        cradle.stroke()
+        let badge: String?
+        switch state {
+        case .disconnected: badge = "xmark.circle"
+        case .standby: badge = nil
+        case .waiting: badge = "hourglass"
+        case .quiet, .signal: badge = "checkmark.shield.fill"
+        }
+        if let badge {
+            NSImage(systemSymbolName: badge, accessibilityDescription: nil)?.draw(in: NSRect(x: 16, y: 1, width: 10, height: 11))
         }
         return true
     }
@@ -41,16 +78,87 @@ final class SampleSink: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     }
 }
 
+/// A control inside the menu handles selection without ending menu tracking.
+final class DeviceChoiceButton: NSButton {
+    var choose: (() -> Void)?
+    private var selected = false
+    private var hovered = false
+    private var hoverTracking: NSTrackingArea?
+    init(title: String, width: CGFloat) {
+        super.init(frame: NSRect(x: 0, y: 0, width: width, height: 28))
+        self.title = title
+        isBordered = false
+        alignment = .left
+        font = .menuFont(ofSize: 0)
+        imagePosition = .imageLeading
+        imageHugsTitle = true
+        setButtonType(.momentaryChange)
+        target = self; action = #selector(selectChoice)
+        autoresizingMask = [.width]
+        setAccessibilityLabel(title)
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    @objc private func selectChoice() { choose?() }
+    func update(selected: Bool, enabled: Bool) {
+        self.selected = selected
+        isEnabled = enabled
+        setAccessibilityValue(selected ? 1 : 0)
+        needsDisplay = true
+    }
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverTracking { removeTrackingArea(hoverTracking) }
+        let tracking = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
+        addTrackingArea(tracking); hoverTracking = tracking
+    }
+    override func mouseEntered(with event: NSEvent) { hovered = true; needsDisplay = true }
+    override func mouseExited(with event: NSEvent) { hovered = false; needsDisplay = true }
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        hovered = false; needsDisplay = true
+    }
+    override func draw(_ dirtyRect: NSRect) {
+        let highlighted = isEnabled && (hovered || isHighlighted)
+        if highlighted {
+            NSColor.selectedContentBackgroundColor.setFill()
+            NSBezierPath(roundedRect: bounds.insetBy(dx: 5, dy: 1), xRadius: 5, yRadius: 5).fill()
+        }
+        let color: NSColor = !isEnabled ? .disabledControlTextColor : (highlighted ? .alternateSelectedControlTextColor : .labelColor)
+        if selected {
+            // A small, aligned checkmark; unselected rows leave this column empty.
+            color.setStroke()
+            let check = NSBezierPath()
+            check.lineWidth = 1.6; check.lineCapStyle = .round; check.lineJoinStyle = .round
+            let y = bounds.midY
+            check.move(to: NSPoint(x: 12, y: y))
+            check.line(to: NSPoint(x: 15, y: y + (isFlipped ? 3 : -3)))
+            check.line(to: NSPoint(x: 20, y: y + (isFlipped ? -4 : 4)))
+            check.stroke()
+        }
+        let attributes: [NSAttributedString.Key: Any] = [.font: font ?? NSFont.menuFont(ofSize: 0), .foregroundColor: color]
+        let text = title as NSString
+        let height = text.size(withAttributes: attributes).height
+        text.draw(at: NSPoint(x: 30, y: (bounds.height - height) / 2), withAttributes: attributes)
+    }
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var item: NSStatusItem!
     private var info: NSMenuItem!
+    private var signalInfo: NSMenuItem!
+    private var lastIndicator: MicIndicator?
     private var deviceInfo: NSMenuItem!
+    private var systemInfo: NSMenuItem!
+    private var systemInputID: String?
     private var toggle: NSMenuItem!
     private var retry: NSMenuItem!
     private var login: NSMenuItem!
     private var restore: NSMenuItem!
     private var loginApproval: NSMenuItem!
     private var deviceMenu: NSMenu!
+    private var deviceMenuOpen = false
+    private let usage = DeviceUsage(defaults: .standard)
     private var intent = KeepAliveIntent()
     private var available: [AVCaptureDevice] = []
     private var selectedName: String?
@@ -89,7 +197,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let menu = NSMenu(); menu.autoenablesItems = false; menu.delegate = self
         deviceInfo = NSMenuItem(title: "", action: nil, keyEquivalent: ""); deviceInfo.isEnabled = false
         info = NSMenuItem(title: "", action: nil, keyEquivalent: ""); info.isEnabled = false
-        menu.addItem(deviceInfo); menu.addItem(info); menu.addItem(.separator())
+        systemInfo = NSMenuItem(title: "", action: nil, keyEquivalent: ""); systemInfo.isEnabled = false
+        signalInfo = NSMenuItem(title: "", action: nil, keyEquivalent: ""); signalInfo.isEnabled = false
+        menu.addItem(systemInfo); menu.addItem(deviceInfo); menu.addItem(info); menu.addItem(signalInfo); menu.addItem(.separator())
         func action(_ key: String, _ selector: Selector) -> NSMenuItem {
             let row = NSMenuItem(title: L(key), action: selector, keyEquivalent: "")
             row.target = self; menu.addItem(row); return row
@@ -97,7 +207,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         toggle = action("start", #selector(toggleCapture))
         retry = action("retry_now", #selector(retryCapture))
         let devicesItem = NSMenuItem(title: L("choose"), action: nil, keyEquivalent: "")
-        deviceMenu = NSMenu(); deviceMenu.autoenablesItems = false
+        deviceMenu = NSMenu(); deviceMenu.autoenablesItems = false; deviceMenu.delegate = self
         devicesItem.submenu = deviceMenu; menu.addItem(devicesItem)
         menu.addItem(.separator())
         login = action("launch_at_login", #selector(toggleLogin))
@@ -134,16 +244,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         observers.append((center, token))
     }
-    func menuWillOpen(_ menu: NSMenu) { reconcile() }
+    func menuWillOpen(_ menu: NSMenu) {
+        if menu === deviceMenu { deviceMenuOpen = false }
+        reconcile()
+        if menu === deviceMenu { deviceMenuOpen = true }
+    }
+    func menuDidClose(_ menu: NSMenu) {
+        if menu === deviceMenu { deviceMenuOpen = false }
+    }
     private func refreshDevices() {
         available = AVCaptureDevice.DiscoverySession(deviceTypes: [.microphone, .external], mediaType: .audio, position: .unspecified).devices
-        if intent.selectedID == nil && !intent.requested {
-            intent.selectedID = AVCaptureDevice.default(for: .audio)?.uniqueID ?? available.first?.uniqueID
-        }
+        let currentSystemID = SystemAudio.inputUID
+        intent.followSystemInput(currentSystemID, previous: systemInputID, availableIDs: Set(available.map(\.uniqueID)))
+        systemInputID = currentSystemID
         if let device = available.first(where: { $0.uniqueID == intent.selectedID }) {
             selectedName = device.localizedName
             UserDefaults.standard.set(device.uniqueID, forKey: "selectedMicrophoneID")
             UserDefaults.standard.set(device.localizedName, forKey: "selectedMicrophoneName")
+        }
+        // Never rebuild or reorder rows under the pointer while the submenu is open.
+        if deviceMenuOpen {
+            for row in deviceMenu.items {
+                guard let id = row.representedObject as? String else { continue }
+                row.state = systemInputID == id ? .on : .off
+                row.isEnabled = !intent.sleeping && !requestingPermission && available.contains { $0.uniqueID == id }
+                (row.view as? DeviceChoiceButton)?.update(selected: row.state == .on, enabled: row.isEnabled)
+            }
+            return
         }
         deviceMenu.removeAllItems()
         if let id = intent.selectedID, !available.contains(where: { $0.uniqueID == id }) {
@@ -154,19 +281,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let row = NSMenuItem(title: L("none"), action: nil, keyEquivalent: "")
             row.isEnabled = false; deviceMenu.addItem(row)
         }
-        for device in available {
+        let sorted = available.sorted { usage.precedes($0.uniqueID, name: $0.localizedName, $1.uniqueID, name: $1.localizedName) }
+        let width = max(180, sorted.map { ($0.localizedName as NSString).size(withAttributes: [.font: NSFont.menuFont(ofSize: 0)]).width + 46 }.max() ?? 180)
+        for device in sorted {
             let row = NSMenuItem(title: device.localizedName, action: #selector(selectDevice(_:)), keyEquivalent: "")
             row.target = self; row.representedObject = device.uniqueID
-            row.state = intent.selectedID == device.uniqueID ? .on : .off
-            row.isEnabled = !intent.requested && !busy && !requestingPermission
+            row.state = systemInputID == device.uniqueID ? .on : .off
+            row.isEnabled = !intent.sleeping && !requestingPermission
+            let button = DeviceChoiceButton(title: device.localizedName, width: width)
+            button.update(selected: row.state == .on, enabled: row.isEnabled)
+            button.choose = { [weak self, weak row] in
+                guard let row else { return }; self?.selectDevice(row)
+            }
+            row.view = button
             deviceMenu.addItem(row)
         }
     }
     @objc private func selectDevice(_ sender: NSMenuItem) {
-        guard !intent.requested && !busy && !requestingPermission else { return }
-        intent.selectedID = sender.representedObject as? String
-        UserDefaults.standard.set(intent.selectedID, forKey: "selectedMicrophoneID")
-        failures = 0; lastError = nil; reconcile()
+        guard !intent.sleeping, !requestingPermission, let id = sender.representedObject as? String else { return }
+        do {
+            let changed = SystemAudio.inputUID != id || intent.selectedID != id
+            try SystemAudio.selectInput(uid: id)
+            if changed { usage.record(id) }
+            intent.selectedID = id
+            systemInputID = id
+            UserDefaults.standard.set(id, forKey: "selectedMicrophoneID")
+            retryAt = 0; failures = 0; lastError = nil
+        } catch { showError(L("switch_error", error.localizedDescription)) }
+        reconcile()
     }
     private func setRequested(_ value: Bool) {
         intent.requested = value
@@ -206,6 +348,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         refreshDevices()
         switch readiness {
         case .ready(let id):
+            if let activeID, activeID != id {
+                retryAt = 0; failures = 0; lastError = nil
+                suspendCapture()
+            }
             if !busy {
                 if activeID != nil {
                     if !sink.recent() && now - startedAt > 10 {
@@ -306,6 +452,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let connected = available.contains(where: { $0.uniqueID == intent.selectedID })
         let name = selectedName ?? (intent.selectedID == nil ? L("unknown_device") : L("saved_device"))
         deviceInfo.title = L("device_connection", name, connected ? L("connected") : L("offline"))
+        let systemName = available.first(where: { $0.uniqueID == systemInputID })?.localizedName ?? L("unknown_device")
+        systemInfo.title = L("system_input", systemName)
         info.title = L("current_status", message)
         toggle.title = intent.requested ? L("stop") : L("start")
         toggle.isEnabled = !requestingPermission
@@ -317,16 +465,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         loginApproval.isHidden = status != .requiresApproval
         login.title = status == .requiresApproval ? L("login_pending") : L("launch_at_login")
         item.button?.title = ""
-        item.button?.setAccessibilityLabel(deviceInfo.title + ". " + info.title)
-        item.button?.toolTip = deviceInfo.title + "\n" + info.title
+        item.button?.setAccessibilityLabel(systemInfo.title + ". " + deviceInfo.title + ". " + info.title)
+        item.button?.toolTip = systemInfo.title + "\n" + deviceInfo.title + "\n" + info.title
         drawMeter()
     }
     private func drawMeter() {
-        if intent.requested && !intent.sleeping && activeID != nil && !busy && sink.recent() {
-            levels.removeFirst(); levels.append(sink.meter()); item.button?.image = meterImage(levels)
-        } else {
-            levels = Array(repeating: 0, count: 5)
-            item.button?.image = NSImage(systemSymbolName: intent.requested ? "pause.circle" : "mic.slash", accessibilityDescription: message)
+        let healthy = intent.requested && !intent.sleeping && activeID != nil && !busy && sink.recent()
+        let connected = available.contains { $0.uniqueID == intent.selectedID }
+        let level = healthy ? sink.meter() : 0
+        let state = MicIndicator.resolve(connected: connected, requested: intent.requested, healthy: healthy, level: level)
+        if healthy {
+            levels.removeFirst(); levels.append(level)
+        } else { levels = Array(repeating: 0, count: 5) }
+        item.button?.image = meterImage(levels, state: state)
+        signalInfo.title = L(state.textKey)
+        let description = systemInfo.title + "\n" + deviceInfo.title + "\n" + info.title + "\n" + signalInfo.title
+        item.button?.toolTip = description
+        if state != lastIndicator {
+            item.button?.setAccessibilityLabel(description)
+            lastIndicator = state
         }
     }
     @objc private func toggleRestore() {
@@ -374,6 +531,7 @@ if CommandLine.arguments.contains("--localization-report") {
 if CommandLine.arguments.contains("--self-test") {
     L10n.validateResources()
     runRecoveryTests()
+    runDeviceUsageTests()
     assert(normalizedLevel(-160) == 0)
     assert(normalizedLevel(-60) == 0)
     assert(normalizedLevel(-30) == 0.5)
@@ -385,12 +543,26 @@ if CommandLine.arguments.contains("--self-test") {
     sink.reset(); assert(!sink.recent())
     try! FileManager.default.createDirectory(atPath: ".build", withIntermediateDirectories: true)
     let image = meterImage([0.1, 0.4, 0.9, 0.7, 0.3])
-    assert(image.size.width == 36 && image.isTemplate)
+    assert(image.size.width == 26 && image.isTemplate)
     if let data = image.tiffRepresentation,
        let bitmap = NSBitmapImageRep(data: data),
        let png = bitmap.representation(using: .png, properties: [:]) {
         try! png.write(to: URL(fileURLWithPath: ".build/meter-preview.png"))
     }
+    assert(MicIndicator.resolve(connected: false, requested: true, healthy: false, level: 0) == .disconnected)
+    assert(MicIndicator.resolve(connected: true, requested: false, healthy: false, level: 1) == .standby)
+    assert(MicIndicator.resolve(connected: true, requested: true, healthy: false, level: 1) == .waiting)
+    assert(MicIndicator.resolve(connected: true, requested: true, healthy: true, level: 0) == .quiet)
+    assert(MicIndicator.resolve(connected: true, requested: true, healthy: true, level: 0.5) == .signal)
+    for state in MicIndicator.allCases {
+        let preview = meterImage(state == .quiet ? [0, 0, 0, 0] : [0.1, 0.4, 0.9, 0.5], state: state)
+        assert(preview.isTemplate && preview.size.width == (state == .standby ? 16 : 26))
+        if let data = preview.tiffRepresentation, let bitmap = NSBitmapImageRep(data: data),
+           let png = bitmap.representation(using: .png, properties: [:]) {
+            try! png.write(to: URL(fileURLWithPath: ".build/indicator-\(state.rawValue).png"))
+        }
+    }
+    print("PASS: connection, unmonitored input, waiting, healthy quiet and signal indicators")
     print("PASS: meter mapping, silent/stale state, icon rendering")
     exit(0)
 }

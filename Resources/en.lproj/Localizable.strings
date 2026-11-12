@@ -1,6 +1,6 @@
 "stopped" = "Stopped · Microphone released";
 "start" = "Start keep-alive";
-"choose" = "Choose microphone (stop to switch)";
+"choose" = "Switch system microphone";
 "help" = "Help & privacy";
 "quit" = "Quit (stop keep-alive)";
 "missing" = "Selected microphone is disconnected";
@@ -17,7 +17,7 @@
 "title" = "Mic KeepAlive";
 "ok" = "Got it";
 "starting" = "Starting: %@…";
-"instructions" = "Select a microphone and start keep-alive. Audio is discarded; no recordings or uploads.\n\nSleep or disconnection pauses capture. Wake or reconnect the SAME device to resume automatically. Stop cancels recovery. Silence is normal when the audio stream is healthy.\n\nLaunch at login and Restore previous keep-alive on launch are independent options, both off by default. Restore resumes only if keep-alive was on when you last quit. Quitting releases the microphone immediately.\n\nLogin items may need approval in System Settings. Install in Applications before enabling.\n\nContinuous Bluetooth input may affect playback quality and battery life. The interface follows your system language; reopen after changing it.";
+"instructions" = "Selecting a mic also changes the macOS default input. Keep-alive follows system input changes while its device is connected. If it disconnects, keep-alive waits for that same device; select another mic to override. Apps with their own fixed input selection must be updated separately.\n\nSelect a microphone and start keep-alive. Audio is discarded; no recordings or uploads.\n\nSleep or disconnection pauses capture. Wake or reconnect the SAME device to resume automatically. Stop cancels recovery. Silence is normal when the audio stream is healthy.\n\nLaunch at login and Restore previous keep-alive on launch are independent options, both off by default. Restore resumes only if keep-alive was on when you last quit. Quitting releases the microphone immediately.\n\nLogin items may need approval in System Settings. Install in Applications before enabling.\n\nContinuous Bluetooth input may affect playback quality and battery life. The interface follows your system language; reopen after changing it.";
 "retry_now" = "Retry / check microphone access";
 "launch_at_login" = "Launch at login";
 "login_approval" = "Open Login Items settings…";
@@ -33,5 +33,12 @@
 "login_error" = "Could not update login item: %@";
 "connected" = "Connected";
 "offline" = "Disconnected";
-"device_connection" = "Device: %@ · %@";
+"device_connection" = "Keep-alive device: %@ · %@";
 "saved_device" = "Previously selected microphone";
+"system_input" = "System input: %@";
+"switch_error" = "Could not switch system microphone: %@";
+"indicator_disconnected" = "Mic disconnected · Keep-alive unavailable";
+"indicator_standby" = "Keep-alive off · Input level not monitored";
+"indicator_waiting" = "Keep-alive pending · Input level unavailable";
+"indicator_quiet" = "Keep-alive active · Low input level";
+"indicator_signal" = "Keep-alive active · Sound detected";

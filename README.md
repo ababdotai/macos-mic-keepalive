@@ -41,12 +41,14 @@ Enable **Launch at login** and/or **Restore previous keep-alive on launch** in t
 
 - **Stay in flow:** reduce mic wake-up delays between spoken coding instructions.
 - **Bluetooth-first:** use AirPods or a DJI Bluetooth mic. USB and other macOS inputs work too.
-- **Live levels:** a small animated meter, no menu bar text.
+- **Frequent devices first:** remembers successful manual switches, with recent use breaking ties. Selecting a mic keeps the list open; click outside to dismiss.
+- **Readable status:** a plain mic means available; a shield means keep-alive is healthy. The mic fills with the input level, an hourglass means recovery is pending, and a disconnect badge means the target mic is unavailable. No menu bar text. Turning keep-alive off releases the mic and stops level monitoring.
 - **Your language:** follows macOS—English or Chinese.
 - **Automatic recovery:** sleep or disconnect pauses capture; wake or reconnect the same mic to resume. Stop cancels recovery.
 - **Optional startup:** launch at login and restore previous keep-alive independently. Both default off.
-- **Clear status:** see the selected device, healthy audio, waiting for reconnect, or retrying.
+- **System mic switching (source build):** change the macOS input from the menu, even during keep-alive. Connected devices follow system changes; disconnected devices wait for reconnection.
+- **Clear status:** separate system input and keep-alive device, plus live capture status. Apps pinned to a specific mic need their own input setting updated.
 
 <sub>Bluetooth audio quality and battery life may be affected. Device results vary; DJI-specific behavior is not yet verified. This does not fix transcription or network delays.</sub>
 
-<sub>Build from source (Xcode Command Line Tools): <code>make run</code> · Test: <code>make test</code> · Package: <code>make release</code></sub>
+<sub>Build from source (Xcode 26+ for icon compilation): <code>make run</code> · Test: <code>make test</code> · Package: <code>make release</code></sub>

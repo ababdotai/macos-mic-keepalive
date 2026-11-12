@@ -1,0 +1,39 @@
+{
+  "fill": {
+    "linear-gradient": [
+      "srgb:0.02,0.74,0.65,1",
+      "srgb:0.02,0.20,0.85,1"
+    ]
+  },
+  "groups": [
+    {
+      "name": "Microphone",
+      "layers": [
+        {
+          "name": "Glass microphone artwork",
+          "image-name": "Artwork.png",
+          "glass": false,
+          "position": {
+            "scale": 1.23,
+            "translation-in-points": [
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "shadow": {
+        "kind": "none",
+        "opacity": 0
+      },
+      "specular": false,
+      "translucency": {
+        "enabled": false,
+        "value": 0
+      }
+    }
+  ],
+  "supported-platforms": {
+    "squares": "shared"
+  }
+}

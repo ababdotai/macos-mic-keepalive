@@ -41,7 +41,7 @@ Enable **Launch at login** and/or **Restore previous keep-alive on launch** in t
 
 - **Stay in flow:** reduce mic wake-up delays between spoken coding instructions.
 - **Bluetooth-first:** use AirPods or a DJI Bluetooth mic. USB and other macOS inputs work too.
-- **Frequent devices first:** remembers successful manual switches, with recent use breaking ties. Selecting a mic keeps the list open; click outside to dismiss.
+- **Frequent devices first:** remembers successful manual switches, with recent use breaking ties. Controls stay in an open panel; click outside to dismiss.
 - **Readable status:** a plain mic means available; a shield means keep-alive is healthy. The mic fills with the input level, an hourglass means recovery is pending, and a disconnect badge means the target mic is unavailable. No menu bar text. Turning keep-alive off releases the mic and stops level monitoring.
 - **Your language:** follows macOS—English or Chinese.
 - **Automatic recovery:** sleep or disconnect pauses capture; wake or reconnect the same mic to resume. Stop cancels recovery.
@@ -52,3 +52,5 @@ Enable **Launch at login** and/or **Restore previous keep-alive on launch** in t
 <sub>Bluetooth audio quality and battery life may be affected. Device results vary; DJI-specific behavior is not yet verified. This does not fix transcription or network delays.</sub>
 
 <sub>Build from source (Xcode 26+ for icon compilation): <code>make run</code> · Test: <code>make test</code> · Package: <code>make release</code></sub>
+
+<sub>Experimental source build: a native glass control panel with optional whisper boost routes amplified, peak-compressed mic audio to BlackHole 2ch. Select BlackHole in your dictation app. Missing BlackHole? The panel links to its official installer website and checks again after setup. No AI denoising; recognition gains are unproven. [试用与对比测试](docs/WHISPER-BOOST.md).</sub>

@@ -50,3 +50,15 @@ Installed-app UI check: selected BlackHole 2ch and then Wireless Mic Rx through 
 Five states distinguish a disconnected target, connected/unmonitored input, pending keep-alive, healthy low-level input, and healthy audible input. The shield is shown only with a healthy stream, including silence. Input is not sampled while keep-alive is off; no claim is made about other apps recording or system mute. `make test` covers all five mappings and renders native icon previews. Check visibility in light/dark menu bars and watch the meter with real microphone audio.
 
 Compact icon: standby uses 16 pt and does not sample audio; other states use 26 pt for a small badge. Healthy input fills the microphone capsule vertically instead of using separate bars. Confirm stopping releases capture and removes the live fill.
+
+## Persistent control panel
+
+`make test` includes missing-driver/available-driver states, disabled controls without an input, source selection, gain selection and inline help. The missing-driver state is simulated; no installed driver is removed for this test.
+
+On the installed app, check that source selection, gain changes, keep-alive/boost switches, startup check tiles, check-again and inline help all keep the popover visible. Test that clicking outside and Escape close it. Do not exercise login registration merely to test persistence. The application-defined popover closes only on outside mouse clicks, Escape, the status button or app exit; internal controls and focus changes do not dismiss it. macOS 26+ uses NSGlassEffectView; macOS 14–15 fallback is compile-checked but not exercised on this Mac.
+
+Device tiles: two columns, selected border/checkmark, two-line names, frequency order refreshed only on panel opening. Tests cover stable order during selection and refreshed order on next opening. Device-area scrolling is capped at three rows.
+
+Physical/virtual ordering: use AVCaptureDevice transport type (virtual/aggregate) rather than display-name guesses. Physical devices precede a collapsed virtual-device group. Unit tests verify physical-first ordering even if a virtual device arrives first, plus explicit expansion. Device tiles use native NSGlassEffectView surfaces on macOS 26+, with interactive glass enabled on macOS 27+.
+
+Verify the panel stays 380 points wide when expanding virtual devices and long inline help. Startup settings must remain visible without a disclosure; their check states follow login/restore preferences.

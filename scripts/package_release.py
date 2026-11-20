@@ -33,8 +33,8 @@ def main():
         binary = BUILD / f'MicKeepAlive-{arch}'
         run('xcrun', 'swiftc', '-target', f'{arch}-apple-macosx14.0',
             '-swift-version', '5', '-O', '-framework', 'AppKit',
-            '-framework', 'AVFoundation', '-framework', 'ServiceManagement', '-framework', 'CoreAudio', ROOT / 'Localization.swift', ROOT / 'RecoveryPolicy.swift',
-            ROOT / 'SystemAudio.swift', ROOT / 'main.swift', '-o', binary)
+            '-framework', 'AVFoundation', '-framework', 'ServiceManagement', '-framework', 'CoreAudio', '-framework', 'AudioToolbox', ROOT / 'Localization.swift', ROOT / 'RecoveryPolicy.swift',
+            ROOT / 'SystemAudio.swift', ROOT / 'Enhancement.swift', ROOT / 'ControlPanel.swift', ROOT / 'main.swift', '-o', binary)
         slices.append(binary)
     binary = macos / 'MicKeepAlive'
     run('xcrun', 'lipo', '-create', *slices, '-output', binary)

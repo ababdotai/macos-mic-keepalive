@@ -1,8 +1,9 @@
 import AppKit
 import AVFoundation
 import ServiceManagement
+import CoreAudio
 
-// Buffers are discarded; retain only a timestamp and scalar meter value.
+// Audio is never saved. Optional enhancement forwards transient buffers to BlackHole.
 func normalizedLevel(_ decibels: Float) -> Double {
     guard decibels.isFinite else { return 0 }
     return min(1, max(0, (Double(decibels) + 60) / 60))
@@ -63,7 +64,10 @@ final class SampleSink: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     private let lock = NSLock()
     private var last: TimeInterval = 0
     private var level: Double = 0
+    // Accessed only from sampleQueue.
+    var enhancement: EnhancementRouter?
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+        enhancement?.consume(sampleBuffer)
         let db = connection.audioChannels.map { $0.averagePowerLevel }.max() ?? -160
         lock.lock(); last = ProcessInfo.processInfo.systemUptime; level = normalizedLevel(db); lock.unlock()
     }
@@ -78,86 +82,16 @@ final class SampleSink: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     }
 }
 
-/// A control inside the menu handles selection without ending menu tracking.
-final class DeviceChoiceButton: NSButton {
-    var choose: (() -> Void)?
-    private var selected = false
-    private var hovered = false
-    private var hoverTracking: NSTrackingArea?
-    init(title: String, width: CGFloat) {
-        super.init(frame: NSRect(x: 0, y: 0, width: width, height: 28))
-        self.title = title
-        isBordered = false
-        alignment = .left
-        font = .menuFont(ofSize: 0)
-        imagePosition = .imageLeading
-        imageHugsTitle = true
-        setButtonType(.momentaryChange)
-        target = self; action = #selector(selectChoice)
-        autoresizingMask = [.width]
-        setAccessibilityLabel(title)
-    }
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-    @objc private func selectChoice() { choose?() }
-    func update(selected: Bool, enabled: Bool) {
-        self.selected = selected
-        isEnabled = enabled
-        setAccessibilityValue(selected ? 1 : 0)
-        needsDisplay = true
-    }
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let hoverTracking { removeTrackingArea(hoverTracking) }
-        let tracking = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
-        addTrackingArea(tracking); hoverTracking = tracking
-    }
-    override func mouseEntered(with event: NSEvent) { hovered = true; needsDisplay = true }
-    override func mouseExited(with event: NSEvent) { hovered = false; needsDisplay = true }
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        hovered = false; needsDisplay = true
-    }
-    override func draw(_ dirtyRect: NSRect) {
-        let highlighted = isEnabled && (hovered || isHighlighted)
-        if highlighted {
-            NSColor.selectedContentBackgroundColor.setFill()
-            NSBezierPath(roundedRect: bounds.insetBy(dx: 5, dy: 1), xRadius: 5, yRadius: 5).fill()
-        }
-        let color: NSColor = !isEnabled ? .disabledControlTextColor : (highlighted ? .alternateSelectedControlTextColor : .labelColor)
-        if selected {
-            // A small, aligned checkmark; unselected rows leave this column empty.
-            color.setStroke()
-            let check = NSBezierPath()
-            check.lineWidth = 1.6; check.lineCapStyle = .round; check.lineJoinStyle = .round
-            let y = bounds.midY
-            check.move(to: NSPoint(x: 12, y: y))
-            check.line(to: NSPoint(x: 15, y: y + (isFlipped ? 3 : -3)))
-            check.line(to: NSPoint(x: 20, y: y + (isFlipped ? -4 : 4)))
-            check.stroke()
-        }
-        let attributes: [NSAttributedString.Key: Any] = [.font: font ?? NSFont.menuFont(ofSize: 0), .foregroundColor: color]
-        let text = title as NSString
-        let height = text.size(withAttributes: attributes).height
-        text.draw(at: NSPoint(x: 30, y: (bounds.height - height) / 2), withAttributes: attributes)
-    }
-}
-
-final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate {
     private var item: NSStatusItem!
-    private var info: NSMenuItem!
-    private var signalInfo: NSMenuItem!
-    private var lastIndicator: MicIndicator?
-    private var deviceInfo: NSMenuItem!
-    private var systemInfo: NSMenuItem!
+    private let panel = ControlPanel()
+    private let popover = NSPopover()
+    private var outsideMonitor: Any?
+    private var localMonitor: Any?
     private var systemInputID: String?
-    private var toggle: NSMenuItem!
-    private var retry: NSMenuItem!
-    private var login: NSMenuItem!
-    private var restore: NSMenuItem!
-    private var loginApproval: NSMenuItem!
-    private var deviceMenu: NSMenu!
-    private var deviceMenuOpen = false
+    private var enhancementEnabled = false
+    private var enhancementGain: Float = 12
+    private var lastIndicator: MicIndicator?
     private let usage = DeviceUsage(defaults: .standard)
     private var intent = KeepAliveIntent()
     private var available: [AVCaptureDevice] = []
@@ -194,29 +128,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         defaults.set(intent.requested, forKey: "keepAliveRequested")
         selectedName = defaults.string(forKey: "selectedMicrophoneName")
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        let menu = NSMenu(); menu.autoenablesItems = false; menu.delegate = self
-        deviceInfo = NSMenuItem(title: "", action: nil, keyEquivalent: ""); deviceInfo.isEnabled = false
-        info = NSMenuItem(title: "", action: nil, keyEquivalent: ""); info.isEnabled = false
-        systemInfo = NSMenuItem(title: "", action: nil, keyEquivalent: ""); systemInfo.isEnabled = false
-        signalInfo = NSMenuItem(title: "", action: nil, keyEquivalent: ""); signalInfo.isEnabled = false
-        menu.addItem(systemInfo); menu.addItem(deviceInfo); menu.addItem(info); menu.addItem(signalInfo); menu.addItem(.separator())
-        func action(_ key: String, _ selector: Selector) -> NSMenuItem {
-            let row = NSMenuItem(title: L(key), action: selector, keyEquivalent: "")
-            row.target = self; menu.addItem(row); return row
+        popover.contentViewController = panel
+        popover.behavior = .applicationDefined
+        popover.animates = false
+        _ = panel.view
+        panel.resize = { [weak self] size in
+            guard let self, self.popover.contentSize != size else { return }
+            self.popover.contentSize = size
         }
-        toggle = action("start", #selector(toggleCapture))
-        retry = action("retry_now", #selector(retryCapture))
-        let devicesItem = NSMenuItem(title: L("choose"), action: nil, keyEquivalent: "")
-        deviceMenu = NSMenu(); deviceMenu.autoenablesItems = false; deviceMenu.delegate = self
-        devicesItem.submenu = deviceMenu; menu.addItem(devicesItem)
-        menu.addItem(.separator())
-        login = action("launch_at_login", #selector(toggleLogin))
-        loginApproval = action("login_approval", #selector(openLoginSettings))
-        restore = action("restore_on_launch", #selector(toggleRestore))
-        menu.addItem(.separator())
-        _ = action("help", #selector(showHelp))
-        let quit = action("quit", #selector(quitApp)); quit.keyEquivalent = "q"
-        item.menu = menu
+        panel.toggleCapture = { [weak self] in self?.toggleCapture() }
+        panel.chooseDevice = { [weak self] id in self?.selectDevice(id) }
+        panel.toggleEnhancement = { [weak self] in self?.toggleEnhancement() }
+        panel.chooseGain = { [weak self] gain in self?.changeEnhancementGain(gain) }
+        panel.retry = { [weak self] in self?.retryCapture() }
+        panel.toggleLogin = { [weak self] in self?.toggleLogin() }
+        panel.toggleRestore = { [weak self] in self?.toggleRestore() }
+        panel.help = { [weak self] in self?.showHelp() }
+        panel.enhancementHelp = { [weak self] in self?.showEnhancementHelp() }
+        panel.install = { [weak self] in self?.openDriverInstallation() }
+        panel.recheck = { [weak self] in
+            guard let self else { return }
+            self.reconcile()
+            self.showError(L((try? EnhancementRouter.destination()) != nil ? "panel_driver_ready" : "panel_install_hint"))
+        }
+        panel.loginSettings = { [weak self] in self?.openLoginSettings() }
+        panel.quit = { [weak self] in self?.quitApp() }
+        item.button?.target = self
+        item.button?.action = #selector(togglePanel)
+        outsideMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            self?.closePanelIfOutside()
+        }
+        localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .keyDown]) { [weak self] event in
+            guard let self, self.popover.isShown else { return event }
+            if event.type == .keyDown {
+                if event.keyCode == 53 { self.popover.performClose(nil); return nil }
+            } else { self.closePanelIfOutside() }
+            return event
+        }
 
         let workspace = NSWorkspace.shared.notificationCenter
         observe(workspace, NSWorkspace.willSleepNotification) { app in
@@ -244,63 +192,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         observers.append((center, token))
     }
-    func menuWillOpen(_ menu: NSMenu) {
-        if menu === deviceMenu { deviceMenuOpen = false }
-        reconcile()
-        if menu === deviceMenu { deviceMenuOpen = true }
+    private func closePanelIfOutside() {
+        guard popover.isShown else { return }
+        let location = NSEvent.mouseLocation
+        if panel.view.window?.frame.contains(location) == true { return }
+        if let button = item.button, let window = button.window,
+           window.convertToScreen(button.convert(button.bounds, to: nil)).contains(location) { return }
+        popover.performClose(nil)
     }
-    func menuDidClose(_ menu: NSMenu) {
-        if menu === deviceMenu { deviceMenuOpen = false }
+    @objc private func togglePanel() {
+        if popover.isShown { popover.performClose(nil); return }
+        panel.beginPresentation()
+        reconcile()
+        guard let button = item.button else { return }
+        NSApp.activate(ignoringOtherApps: true)
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        panel.view.window?.makeFirstResponder(nil)
+
+    }
+    private func openDriverInstallation() {
+        panel.showNotice(L("panel_install_hint"))
+        NSWorkspace.shared.open(URL(string: "https://existential.audio/blackhole/")!)
     }
     private func refreshDevices() {
         available = AVCaptureDevice.DiscoverySession(deviceTypes: [.microphone, .external], mediaType: .audio, position: .unspecified).devices
         let currentSystemID = SystemAudio.inputUID
-        intent.followSystemInput(currentSystemID, previous: systemInputID, availableIDs: Set(available.map(\.uniqueID)))
+        if !enhancementEnabled {
+            intent.followSystemInput(currentSystemID, previous: systemInputID, availableIDs: Set(available.map(\.uniqueID)))
+        }
         systemInputID = currentSystemID
         if let device = available.first(where: { $0.uniqueID == intent.selectedID }) {
             selectedName = device.localizedName
             UserDefaults.standard.set(device.uniqueID, forKey: "selectedMicrophoneID")
             UserDefaults.standard.set(device.localizedName, forKey: "selectedMicrophoneName")
         }
-        // Never rebuild or reorder rows under the pointer while the submenu is open.
-        if deviceMenuOpen {
-            for row in deviceMenu.items {
-                guard let id = row.representedObject as? String else { continue }
-                row.state = systemInputID == id ? .on : .off
-                row.isEnabled = !intent.sleeping && !requestingPermission && available.contains { $0.uniqueID == id }
-                (row.view as? DeviceChoiceButton)?.update(selected: row.state == .on, enabled: row.isEnabled)
-            }
-            return
-        }
-        deviceMenu.removeAllItems()
-        if let id = intent.selectedID, !available.contains(where: { $0.uniqueID == id }) {
-            let row = NSMenuItem(title: L("missing"), action: nil, keyEquivalent: "")
-            row.isEnabled = false; deviceMenu.addItem(row)
-        }
-        if available.isEmpty {
-            let row = NSMenuItem(title: L("none"), action: nil, keyEquivalent: "")
-            row.isEnabled = false; deviceMenu.addItem(row)
-        }
-        let sorted = available.sorted { usage.precedes($0.uniqueID, name: $0.localizedName, $1.uniqueID, name: $1.localizedName) }
-        let width = max(180, sorted.map { ($0.localizedName as NSString).size(withAttributes: [.font: NSFont.menuFont(ofSize: 0)]).width + 46 }.max() ?? 180)
-        for device in sorted {
-            let row = NSMenuItem(title: device.localizedName, action: #selector(selectDevice(_:)), keyEquivalent: "")
-            row.target = self; row.representedObject = device.uniqueID
-            row.state = systemInputID == device.uniqueID ? .on : .off
-            row.isEnabled = !intent.sleeping && !requestingPermission
-            let button = DeviceChoiceButton(title: device.localizedName, width: width)
-            button.update(selected: row.state == .on, enabled: row.isEnabled)
-            button.choose = { [weak self, weak row] in
-                guard let row else { return }; self?.selectDevice(row)
-            }
-            row.view = button
-            deviceMenu.addItem(row)
-        }
     }
-    @objc private func selectDevice(_ sender: NSMenuItem) {
-        guard !intent.sleeping, !requestingPermission, let id = sender.representedObject as? String else { return }
+    private func selectDevice(_ id: String) {
+        guard !intent.sleeping, !requestingPermission else { return }
         do {
             let changed = SystemAudio.inputUID != id || intent.selectedID != id
+            guard !enhancementEnabled || id != EnhancementRouter.destinationUID else { return }
             try SystemAudio.selectInput(uid: id)
             if changed { usage.record(id) }
             intent.selectedID = id
@@ -309,6 +240,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             retryAt = 0; failures = 0; lastError = nil
         } catch { showError(L("switch_error", error.localizedDescription)) }
         reconcile()
+    }
+    @objc private func showEnhancementHelp() { showError(L("enhance_instructions")) }
+    @objc private func toggleEnhancement() {
+        if !enhancementEnabled {
+            guard let id = intent.selectedID, id != EnhancementRouter.destinationUID else { showError(L("enhance_source")); updateUI(); return }
+            do { _ = try EnhancementRouter.destination() }
+            catch { showError(error.localizedDescription); updateUI(); return }
+        }
+        enhancementEnabled.toggle()
+        retryAt = 0; failures = 0; lastError = nil
+        if activeID != nil { suspendCapture() } else { reconcile() }
+    }
+    private func changeEnhancementGain(_ gain: Float) {
+        guard [Float(6), 12, 18].contains(gain), gain != enhancementGain else { return }
+        enhancementGain = gain
+        retryAt = 0; failures = 0; lastError = nil
+        if enhancementEnabled && activeID != nil { suspendCapture() } else { updateUI() }
     }
     private func setRequested(_ value: Bool) {
         intent.requested = value
@@ -346,6 +294,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func reconcile() {
         guard !terminating else { return }
         refreshDevices()
+        if enhancementEnabled, activeID != nil, !busy {
+            let error = sampleQueue.sync { sink.enhancement?.error }
+            if let error { recordFailure(error); suspendCapture() }
+        }
         switch readiness {
         case .ready(let id):
             if let activeID, activeID != id {
@@ -370,10 +322,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func startCapture(_ device: AVCaptureDevice) {
         let ticket = gate.advance()
         activeID = device.uniqueID; busy = true; startedAt = now
+        let enhance = enhancementEnabled, gain = enhancementGain
         captureQueue.async {
             guard self.gate.contains(ticket) else { return }
             do {
                 self.clearSession()
+                if enhance {
+                    guard device.uniqueID != EnhancementRouter.destinationUID else { throw NSError(domain: "MicEnhancement", code: 2, userInfo: [NSLocalizedDescriptionKey: L("enhance_source")]) }
+                    let router = try EnhancementRouter(gainDB: gain)
+                    self.sampleQueue.sync { self.sink.enhancement = router }
+                }
                 let input = try AVCaptureDeviceInput(device: device)
                 let output = AVCaptureAudioDataOutput()
                 output.setSampleBufferDelegate(self.sink, queue: self.sampleQueue)
@@ -417,7 +375,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         for input in session.inputs { session.removeInput(input) }
         session.commitConfiguration()
-        sampleQueue.sync { self.sink.reset() }
+        sampleQueue.sync {
+            self.sink.enhancement?.stop(); self.sink.enhancement = nil
+            self.sink.reset()
+        }
     }
     private func suspendCapture() {
         let ticket = gate.advance()
@@ -449,24 +410,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
     private func updateUI() {
         guard item != nil else { return }
-        let connected = available.contains(where: { $0.uniqueID == intent.selectedID })
-        let name = selectedName ?? (intent.selectedID == nil ? L("unknown_device") : L("saved_device"))
-        deviceInfo.title = L("device_connection", name, connected ? L("connected") : L("offline"))
-        let systemName = available.first(where: { $0.uniqueID == systemInputID })?.localizedName ?? L("unknown_device")
-        systemInfo.title = L("system_input", systemName)
-        info.title = L("current_status", message)
-        toggle.title = intent.requested ? L("stop") : L("start")
-        toggle.isEnabled = !requestingPermission
-        retry.isHidden = !intent.requested
-        retry.isEnabled = !busy && !intent.sleeping
-        restore.state = UserDefaults.standard.bool(forKey: "restoreKeepAliveOnLaunch") ? .on : .off
-        let status = SMAppService.mainApp.status
-        login.state = status == .enabled ? .on : (status == .requiresApproval ? .mixed : .off)
-        loginApproval.isHidden = status != .requiresApproval
-        login.title = status == .requiresApproval ? L("login_pending") : L("launch_at_login")
+        func isVirtual(_ device: AVCaptureDevice) -> Bool {
+            let type = UInt32(bitPattern: device.transportType)
+            return type == kAudioDeviceTransportTypeVirtual || type == kAudioDeviceTransportTypeAggregate
+        }
+        let sorted = available.sorted {
+            if isVirtual($0) != isVirtual($1) { return !isVirtual($0) }
+            return usage.precedes($0.uniqueID, name: $0.localizedName, $1.uniqueID, name: $1.localizedName)
+        }
+        var devices = sorted.map { PanelDevice(id: $0.uniqueID, name: $0.localizedName, enabled: !enhancementEnabled || $0.uniqueID != EnhancementRouter.destinationUID, isVirtual: isVirtual($0)) }
+        if let id = intent.selectedID, !available.contains(where: { $0.uniqueID == id }) {
+            devices.insert(PanelDevice(id: id, name: (selectedName ?? L("saved_device")) + " · " + L("offline"), enabled: false), at: 0)
+        }
+        let loginStatus = SMAppService.mainApp.status
+        let healthy = intent.requested && activeID != nil && !busy && sink.recent() && lastError == nil
+        panel.update(PanelState(devices: devices, selectedID: intent.selectedID,
+            systemName: available.first(where: { $0.uniqueID == systemInputID })?.localizedName ?? L("unknown_device"),
+            status: message, requested: intent.requested, canToggle: !requestingPermission,
+            enhancement: enhancementEnabled, gain: enhancementGain,
+            driverInstalled: (try? EnhancementRouter.destination()) != nil, sending: healthy && enhancementEnabled,
+            canRetry: !busy && !intent.sleeping,
+            loginState: loginStatus == .enabled ? .on : (loginStatus == .requiresApproval ? .mixed : .off),
+            loginPending: loginStatus == .requiresApproval,
+            restore: UserDefaults.standard.bool(forKey: "restoreKeepAliveOnLaunch")))
         item.button?.title = ""
-        item.button?.setAccessibilityLabel(systemInfo.title + ". " + deviceInfo.title + ". " + info.title)
-        item.button?.toolTip = systemInfo.title + "\n" + deviceInfo.title + "\n" + info.title
         drawMeter()
     }
     private func drawMeter() {
@@ -478,8 +445,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             levels.removeFirst(); levels.append(level)
         } else { levels = Array(repeating: 0, count: 5) }
         item.button?.image = meterImage(levels, state: state)
-        signalInfo.title = L(state.textKey)
-        let description = systemInfo.title + "\n" + deviceInfo.title + "\n" + info.title + "\n" + signalInfo.title
+        let description = (selectedName ?? L("unknown_device")) + "\n" + message + "\n" + L(state.textKey)
         item.button?.toolTip = description
         if state != lastIndicator {
             item.button?.setAccessibilityLabel(description)
@@ -509,15 +475,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
     @objc private func openLoginSettings() { SMAppService.openSystemSettingsLoginItems() }
     private func showError(_ text: String) {
-        NSApp.activate(ignoringOtherApps: true)
-        let alert = NSAlert(); alert.messageText = L("title"); alert.informativeText = text
-        alert.addButton(withTitle: L("ok")); alert.runModal()
+        if !popover.isShown { togglePanel() }
+        panel.showNotice(text)
     }
     @objc private func showHelp() { showError(L("instructions")) }
     @objc private func quitApp() { NSApp.terminate(nil) }
     func applicationWillTerminate(_ notification: Notification) {
         terminating = true; gate.advance()
         timer?.invalidate(); meterTimer?.invalidate()
+        if let outsideMonitor { NSEvent.removeMonitor(outsideMonitor) }
+        if let localMonitor { NSEvent.removeMonitor(localMonitor) }
         for (center, token) in observers { center.removeObserver(token) }
         // Preserve user intent for the optional next-launch restore, but release capture now.
         captureQueue.sync { self.clearSession() }
@@ -532,6 +499,8 @@ if CommandLine.arguments.contains("--self-test") {
     L10n.validateResources()
     runRecoveryTests()
     runDeviceUsageTests()
+    runEnhancementTests()
+    ControlPanel.runTests()
     assert(normalizedLevel(-160) == 0)
     assert(normalizedLevel(-60) == 0)
     assert(normalizedLevel(-30) == 0.5)

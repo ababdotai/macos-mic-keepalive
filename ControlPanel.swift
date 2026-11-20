@@ -21,6 +21,7 @@ struct PanelState {
     var loginState: NSControl.StateValue
     var loginPending: Bool
     var restore: Bool
+    var boostStoppedNotice: Bool = false
 }
 private final class PanelDocument: NSView {
     override var isFlipped: Bool { true }
@@ -106,6 +107,7 @@ final class ControlPanel: NSViewController {
     private let system = NSTextField(wrappingLabelWithString: "")
     private let keep = NSSwitch()
     private let keepIcon = NSImageView()
+    private let captureHint = NSTextField(wrappingLabelWithString: "")
     private let boostIcon = NSImageView()
     private let boost = NSSwitch()
     private let gain = NSSegmentedControl(labels: [L("panel_gain_low"), L("panel_gain_mid"), L("panel_gain_high")], trackingMode: .selectOne, target: nil, action: nil)
@@ -158,10 +160,11 @@ final class ControlPanel: NSViewController {
         deviceHeight = source.heightAnchor.constraint(equalToConstant: 52); deviceHeight.isActive = true
         NSLayoutConstraint.activate([deviceDocument.widthAnchor.constraint(equalTo: source.contentView.widthAnchor), deviceStack.leadingAnchor.constraint(equalTo: deviceDocument.leadingAnchor), deviceStack.trailingAnchor.constraint(equalTo: deviceDocument.trailingAnchor), deviceStack.topAnchor.constraint(equalTo: deviceDocument.topAnchor), deviceStack.bottomAnchor.constraint(equalTo: deviceDocument.bottomAnchor)])
         system.font = .systemFont(ofSize: 11); system.textColor = .secondaryLabelColor
+        captureHint.font = .systemFont(ofSize: 11); captureHint.textColor = .secondaryLabelColor
         retryButton = button("panel_retry", .retry)
         virtualButton = button("panel_virtual", .virtualDevices)
         virtualButton.isBordered = false; virtualButton.alignment = .left; virtualButton.imagePosition = .imageLeading
-        add(card([controlHeader(icon: keepIcon, symbol: "mic.fill", title: L("panel_keep"), subtitle: L("panel_keep_short"), control: keep), source, virtualButton, system, retryButton]))
+        add(card([controlHeader(icon: keepIcon, symbol: "mic.fill", title: L("panel_keep"), subtitle: L("panel_keep_short"), control: keep), source, virtualButton, system, captureHint, retryButton]))
 
         bind(boost, .boost); boost.setAccessibilityLabel(L("panel_boost"))
         gain.target = self; gain.action = #selector(selectGain); gain.setAccessibilityLabel(L("panel_gain"))
@@ -192,7 +195,7 @@ final class ControlPanel: NSViewController {
         noteGroup.addArrangedSubview(note); note.widthAnchor.constraint(equalTo: noteGroup.widthAnchor).isActive = true
         noteGroup.addArrangedSubview(button("panel_close_help", .closeNote)); add(noteGroup)
         noteGroup.isHidden = true
-        for field in [status, system, route, driver, note] {
+        for field in [status, system, route, driver, note, captureHint] {
             field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         }
     }
@@ -338,6 +341,8 @@ final class ControlPanel: NSViewController {
         status.stringValue = state.status
         system.stringValue = L("system_input", state.systemName)
         system.isHidden = state.devices.first(where: { $0.id == state.selectedID })?.name == state.systemName
+        captureHint.stringValue = L("boost_stopped_notice")
+        captureHint.isHidden = !state.boostStoppedNotice
         keepIcon.contentTintColor = state.requested ? .controlAccentColor : .secondaryLabelColor
         boostIcon.contentTintColor = state.enhancement ? .systemPurple : .secondaryLabelColor
         keep.state = state.requested ? .on : .off; keep.isEnabled = state.canToggle && (state.requested || !state.devices.isEmpty)
@@ -393,6 +398,13 @@ final class ControlPanel: NSViewController {
         panel.update(state)
         assert(panel.gain.isEnabled && panel.gain.selectedSegment == 2)
         assert(panel.keep.state == .on && panel.boost.state == .on)
+        state.requested = false; state.enhancement = false; state.boostStoppedNotice = true
+        panel.update(state)
+        assert(panel.keep.state == .off && panel.boost.state == .off)
+        assert(!panel.captureHint.isHidden)
+        state.enhancement = true; state.requested = true; state.boostStoppedNotice = false
+        panel.update(state)
+        assert(panel.captureHint.isHidden)
         panel.showNotice("Test guidance")
         assert(!panel.noteGroup.isHidden)
         assert(!panel.startupGroup.isHidden)

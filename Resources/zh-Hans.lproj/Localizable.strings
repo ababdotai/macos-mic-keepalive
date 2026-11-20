@@ -17,7 +17,7 @@
 "title" = "麦克风保活";
 "ok" = "知道了";
 "starting" = "正在启动：%@…";
-"instructions" = "日常使用\n选择真实麦克风，打开“保持麦克风就绪”，减少开口前的唤醒等待。关闭或退出即释放麦克风。\n\n设备切换\n点选设备会同步切换系统输入。普通保活跟随系统输入；轻声增强固定使用所选麦克风。语音输入法若单独指定了设备，需在其中另行切换。\n\n自动恢复\n睡眠或断连时暂停，唤醒或原设备重连后恢复；手动停止则取消恢复。\n\n启动设置\n“登录时启动”负责启动应用；“启动后恢复上次保活”仅在上次退出时仍开启保活的情况下恢复收音。两项独立，默认关闭。登录项需要授权时，按提示前往系统设置；请先将应用放入 Applications。\n\n隐私与提示\n不保存、不上传声音。蓝牙收音可能影响耳机音质和续航。界面跟随系统语言，修改后需重启应用。";
+"instructions" = "日常使用\n选择真实麦克风，打开“保持麦克风就绪”，减少开口前的唤醒等待。关闭保活会同时关闭增强并释放麦克风；退出也会释放。\n\n设备切换\n点选设备会同步切换系统输入。普通保活跟随系统输入；轻声增强固定使用所选麦克风。语音输入法若单独指定了设备，需在其中另行切换。\n\n自动恢复\n睡眠或断连时暂停，唤醒或原设备重连后恢复；手动停止则取消恢复。\n\n启动设置\n“登录时启动”负责启动应用；“启动后恢复上次保活”仅在上次退出时仍开启保活的情况下恢复收音。两项独立，默认关闭。登录项需要授权时，按提示前往系统设置；请先将应用放入 Applications。\n\n隐私与提示\n不保存、不上传声音。蓝牙收音可能影响耳机音质和续航。界面跟随系统语言，修改后需重启应用。";
 "retry_now" = "重试／检查麦克风权限";
 "launch_at_login" = "登录时启动";
 "login_approval" = "打开登录项设置…";
@@ -43,18 +43,18 @@
 "indicator_quiet" = "保活正常 · 当前输入电平较低";
 "indicator_signal" = "保活正常 · 检测到声音输入";
 "enhance_enable" = "轻声增强 → BlackHole（试用）";
-"enhance_enabled" = "轻声增强已选 · 开启保活后送入 BlackHole";
+"enhance_enabled" = "轻声增强已启用 · 保活已自动开启";
 "enhance_gain" = "增强：+%@ dB（点击换档）";
 "enhance_missing" = "未找到 BlackHole 2ch，请先安装或连接。";
 "enhance_source" = "请先选择真实麦克风，不能将 BlackHole 用作增强源。";
 "enhance_failed" = "增强输出失败，请检查 BlackHole 2ch。";
 "enhance_running" = "轻声增强输出中 → BlackHole 2ch";
 "enhance_help" = "轻声增强测试说明…";
-"enhance_instructions" = "1. 开启增强\n在本工具中选择真实麦克风，打开“保持麦克风就绪”和“增强轻声输入”。从“中 · +12 dB”开始。\n\n2. 设置语音输入法\n在语音输入法的麦克风设置中选择 BlackHole 2ch。若没有设备选项，可在系统声音设置中将输入改为 BlackHole；本工具保持增强开启和原麦克风不变。不要更改音乐输出。\n\n3. 对比效果\n以相同音量读同一句话，对比真实麦克风与 BlackHole 的识别结果。噪声变大就调低一档；声音仍太小再调高。增强也会放大噪声，不做 AI 降噪，识别效果需实际比较。\n\n4. 结束使用\n先将语音输入法（如有更改，也包括系统）的输入切回真实麦克风，再关闭增强。停止保活或退出后，BlackHole 不再收到本工具的声音。\n\n重启后增强默认关闭，强度恢复 +12 dB。不保存、不上传声音；AirPods 收音仍可能影响音乐音质。";
+"enhance_instructions" = "1. 开启增强\n在本工具中选择真实麦克风，打开“增强轻声输入”，会自动开启保活。从“中 · +12 dB”开始。\n\n2. 设置语音输入法\n在语音输入法的麦克风设置中选择 BlackHole 2ch。若没有设备选项，可在系统声音设置中将输入改为 BlackHole；本工具保持增强开启和原麦克风不变。不要更改音乐输出。\n\n3. 对比效果\n以相同音量读同一句话，对比真实麦克风与 BlackHole 的识别结果。噪声变大就调低一档；声音仍太小再调高。增强也会放大噪声，不做 AI 降噪，识别效果需实际比较。\n\n4. 结束使用\n先将语音输入法（如有更改，也包括系统）的输入切回真实麦克风，再关闭增强。关闭增强保留普通保活；关闭保活会同时关闭增强。关闭增强或退出后，BlackHole 不再收到本工具的声音。\n\n重启后增强默认关闭，强度恢复 +12 dB。不保存、不上传声音；AirPods 收音仍可能影响音乐音质。";
 "panel_keep" = "保持麦克风就绪";
 "panel_boost" = "增强轻声输入";
 "panel_microphone" = "麦克风";
-"panel_keep_hint" = "减少首次说话前的唤醒等待。关闭后释放麦克风。";
+"panel_keep_hint" = "保活是收音总开关；关闭时同时关闭增强。";
 "panel_retry" = "重试 / 检查权限";
 "panel_enhancement" = "轻声增强";
 "panel_gain" = "增强强度";
@@ -67,11 +67,11 @@
 "panel_driver_ready" = "音频组件已就绪 · BlackHole 2ch";
 "panel_driver_missing" = "需要音频组件 · BlackHole 2ch 尚未安装";
 "panel_route_active" = "正在向 BlackHole 2ch 输出增强声音。\n下一步：在语音输入法中选择 BlackHole 2ch。";
-"panel_route_pending" = "下一步：打开上方“保持麦克风就绪”。\n然后在语音输入法中选择 BlackHole 2ch。";
+"panel_route_pending" = "正在启动增强；就绪后向 BlackHole 2ch 送音。\n请在语音输入法中选择 BlackHole 2ch。";
 "panel_route_off" = "开启后，将增强声音送入 BlackHole 2ch。\n关闭时，请在语音输入法中选择真实麦克风。";
 "panel_install_hint" = "仅轻声增强需要 BlackHole，普通保活无需安装。\n\n1. 在即将打开的官网下载安装 2ch 版本。\n2. 按安装器提示授权或重启。\n3. 回到面板，点击“重新检测”。";
-"panel_keep_short" = "随时开口，减少唤醒等待";
-"panel_boost_short" = "轻声放大，避免音量过低";
+"panel_keep_short" = "关闭后停止收音，同时关闭增强";
+"panel_boost_short" = "放大轻声，开启时自动开启保活";
 "panel_restore_hint" = "仅恢复麦克风保活；重新启动后轻声增强保持关闭。";
 "panel_gain_low" = "轻 · +6 dB";
 "panel_gain_mid" = "中 · +12 dB";
@@ -79,3 +79,8 @@
 "panel_virtual" = "虚拟设备（%@）";
 
 "panel_startup_short" = "设置登录启动与保活恢复";
+
+"boost_active_status" = "增强中 · 正在使用麦克风";
+
+
+"boost_stopped_notice" = "增强输出已停止。请将语音输入法的麦克风切回真实设备。";

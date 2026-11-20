@@ -42,7 +42,7 @@ Enable **Launch at login** and/or **Restore previous keep-alive on launch** in t
 - **Stay in flow:** reduce mic wake-up delays between spoken coding instructions.
 - **Bluetooth-first:** use AirPods or a DJI Bluetooth mic. USB and other macOS inputs work too.
 - **Frequent devices first:** remembers successful manual switches, with recent use breaking ties. Controls stay in an open panel; click outside to dismiss.
-- **Readable status:** a plain mic means available; a shield means keep-alive is healthy. The mic fills with the input level, an hourglass means recovery is pending, and a disconnect badge means the target mic is unavailable. No menu bar text. Turning keep-alive off releases the mic and stops level monitoring.
+- **Readable status:** a plain mic means available; a shield means keep-alive is healthy. The mic fills with the input level, an hourglass means recovery is pending, and a disconnect badge means the target mic is unavailable. No menu bar text. Turning keep-alive off also disables whisper boost, releases the mic and stops level monitoring.
 - **Your language:** follows macOS—English or Chinese.
 - **Automatic recovery:** sleep or disconnect pauses capture; wake or reconnect the same mic to resume. Stop cancels recovery.
 - **Optional startup:** launch at login and restore previous keep-alive independently. Both default off.

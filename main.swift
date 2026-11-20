@@ -18,11 +18,13 @@ enum MicIndicator: String, CaseIterable {
     }
     var textKey: String { "indicator_" + rawValue }
 }
-func meterImage(_ levels: [Double], state: MicIndicator = .signal) -> NSImage {
-    let width: CGFloat = state == .standby ? 16 : 26
-    let image = NSImage(size: NSSize(width: width, height: 18), flipped: false) { _ in
+func meterImage(_ levels: [Double], state: MicIndicator = .signal, enhanced: Bool = false) -> NSImage {
+    let width: CGFloat = state == .standby ? 16 : 32
+    let image = NSImage(size: NSSize(width: width, height: 22), flipped: false) { _ in
         NSColor.black.setStroke()
         NSColor.black.setFill()
+        NSGraphicsContext.saveGraphicsState()
+        let micOffset = NSAffineTransform(); micOffset.translateX(by: 0, yBy: 2); micOffset.concat()
         let capsule = NSBezierPath(roundedRect: NSRect(x: 5, y: 7, width: 6, height: 10), xRadius: 3, yRadius: 3)
         capsule.lineWidth = 1.2
         capsule.stroke()
@@ -45,6 +47,7 @@ func meterImage(_ levels: [Double], state: MicIndicator = .signal) -> NSImage {
         cradle.move(to: NSPoint(x: 5.5, y: 1))
         cradle.line(to: NSPoint(x: 10.5, y: 1))
         cradle.stroke()
+        NSGraphicsContext.restoreGraphicsState()
         let badge: String?
         switch state {
         case .disconnected: badge = "xmark.circle"
@@ -53,7 +56,17 @@ func meterImage(_ levels: [Double], state: MicIndicator = .signal) -> NSImage {
         case .quiet, .signal: badge = "checkmark.shield.fill"
         }
         if let badge {
-            NSImage(systemSymbolName: badge, accessibilityDescription: nil)?.draw(in: NSRect(x: 16, y: 1, width: 10, height: 11))
+            NSImage(systemSymbolName: badge, accessibilityDescription: nil)?.draw(in: NSRect(x: 18, y: 0.5, width: 12, height: 11))
+        }
+        if enhanced && (state == .quiet || state == .signal) {
+            // A bold plus stays legible at menu-bar size.
+            let plus = NSBezierPath()
+            plus.lineWidth = 2; plus.lineCapStyle = .round
+            plus.move(to: NSPoint(x: 20.5, y: 17.5))
+            plus.line(to: NSPoint(x: 27.5, y: 17.5))
+            plus.move(to: NSPoint(x: 24, y: 14))
+            plus.line(to: NSPoint(x: 24, y: 21))
+            plus.stroke()
         }
         return true
     }
@@ -89,7 +102,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var outsideMonitor: Any?
     private var localMonitor: Any?
     private var systemInputID: String?
-    private var enhancementEnabled = false
+    private var enhancementEnabled: Bool { intent.enhancement }
+    private var boostStoppedNotice = false
     private var enhancementGain: Float = 12
     private var lastIndicator: MicIndicator?
     private let usage = DeviceUsage(defaults: .standard)
@@ -115,6 +129,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var levels = Array(repeating: 0.0, count: 5)
     private var now: TimeInterval { ProcessInfo.processInfo.systemUptime }
     private var authorized: Bool { AVCaptureDevice.authorizationStatus(for: .audio) == .authorized }
+    private var captureRequested: Bool { intent.requested }
     private var readiness: KeepAliveIntent.Readiness {
         intent.readiness(availableIDs: Set(available.map(\.uniqueID)), authorized: authorized)
     }
@@ -243,12 +258,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     @objc private func showEnhancementHelp() { showError(L("enhance_instructions")) }
     @objc private func toggleEnhancement() {
+        guard !requestingPermission else { return }
         if !enhancementEnabled {
+            if !authorized {
+                if AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined {
+                    requestingPermission = true; updateUI()
+                    AVCaptureDevice.requestAccess(for: .audio) { [weak self] granted in
+                        DispatchQueue.main.async {
+                            guard let self, !self.terminating else { return }
+                            self.requestingPermission = false
+                            if granted { self.toggleEnhancement() }
+                            else { self.showError(L("denied")); self.updateUI() }
+                        }
+                    }
+                } else { openMicrophoneSettings() }
+                return
+            }
             guard let id = intent.selectedID, id != EnhancementRouter.destinationUID else { showError(L("enhance_source")); updateUI(); return }
             do { _ = try EnhancementRouter.destination() }
             catch { showError(error.localizedDescription); updateUI(); return }
         }
-        enhancementEnabled.toggle()
+        intent.setEnhancement(!enhancementEnabled)
+        boostStoppedNotice = !enhancementEnabled
+        UserDefaults.standard.set(intent.requested, forKey: "keepAliveRequested")
         retryAt = 0; failures = 0; lastError = nil
         if activeID != nil { suspendCapture() } else { reconcile() }
     }
@@ -259,7 +291,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if enhancementEnabled && activeID != nil { suspendCapture() } else { updateUI() }
     }
     private func setRequested(_ value: Bool) {
-        intent.requested = value
+        if !value && enhancementEnabled { boostStoppedNotice = true }
+        intent.setRequested(value)
         UserDefaults.standard.set(value, forKey: "keepAliveRequested")
         retryAt = 0; failures = 0; lastError = nil
         reconcile()
@@ -286,7 +319,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")!)
     }
     @objc private func retryCapture() {
-        guard intent.requested else { return }
+        guard captureRequested else { return }
         guard authorized else { openMicrophoneSettings(); return }
         retryAt = 0; failures = 0; lastError = nil
         if activeID != nil { suspendCapture() } else { reconcile() }
@@ -403,7 +436,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .needsPermission: return L("permission")
         case .ready:
             if busy { return L("starting", selectedName ?? L("unknown_device")) }
-            if activeID != nil { return sink.recent() ? L("active") : L("waiting") }
+            if activeID != nil { return sink.recent() ? L(enhancementEnabled ? "boost_active_status" : "active") : L("waiting") }
             if let lastError { return L("retry_error", String(max(0, Int(ceil(retryAt - now)))), lastError) }
             return L("waiting")
         }
@@ -423,7 +456,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             devices.insert(PanelDevice(id: id, name: (selectedName ?? L("saved_device")) + " · " + L("offline"), enabled: false), at: 0)
         }
         let loginStatus = SMAppService.mainApp.status
-        let healthy = intent.requested && activeID != nil && !busy && sink.recent() && lastError == nil
+        let healthy = captureRequested && activeID != nil && !busy && sink.recent() && lastError == nil
         panel.update(PanelState(devices: devices, selectedID: intent.selectedID,
             systemName: available.first(where: { $0.uniqueID == systemInputID })?.localizedName ?? L("unknown_device"),
             status: message, requested: intent.requested, canToggle: !requestingPermission,
@@ -432,22 +465,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             canRetry: !busy && !intent.sleeping,
             loginState: loginStatus == .enabled ? .on : (loginStatus == .requiresApproval ? .mixed : .off),
             loginPending: loginStatus == .requiresApproval,
-            restore: UserDefaults.standard.bool(forKey: "restoreKeepAliveOnLaunch")))
+            restore: UserDefaults.standard.bool(forKey: "restoreKeepAliveOnLaunch"), boostStoppedNotice: boostStoppedNotice))
         item.button?.title = ""
         drawMeter()
     }
     private func drawMeter() {
-        let healthy = intent.requested && !intent.sleeping && activeID != nil && !busy && sink.recent()
+        let healthy = captureRequested && !intent.sleeping && activeID != nil && !busy && sink.recent() && lastError == nil
         let connected = available.contains { $0.uniqueID == intent.selectedID }
         let level = healthy ? sink.meter() : 0
-        let state = MicIndicator.resolve(connected: connected, requested: intent.requested, healthy: healthy, level: level)
+        let state = MicIndicator.resolve(connected: connected, requested: captureRequested, healthy: healthy, level: level)
         if healthy {
             levels.removeFirst(); levels.append(level)
         } else { levels = Array(repeating: 0, count: 5) }
-        item.button?.image = meterImage(levels, state: state)
+        item.button?.image = meterImage(levels, state: state, enhanced: enhancementEnabled && healthy)
         let description = (selectedName ?? L("unknown_device")) + "\n" + message + "\n" + L(state.textKey)
         item.button?.toolTip = description
-        if state != lastIndicator {
+        if state != lastIndicator || enhancementEnabled {
             item.button?.setAccessibilityLabel(description)
             lastIndicator = state
         }
@@ -512,7 +545,7 @@ if CommandLine.arguments.contains("--self-test") {
     sink.reset(); assert(!sink.recent())
     try! FileManager.default.createDirectory(atPath: ".build", withIntermediateDirectories: true)
     let image = meterImage([0.1, 0.4, 0.9, 0.7, 0.3])
-    assert(image.size.width == 26 && image.isTemplate)
+    assert(image.size.width == 32 && image.isTemplate)
     if let data = image.tiffRepresentation,
        let bitmap = NSBitmapImageRep(data: data),
        let png = bitmap.representation(using: .png, properties: [:]) {
@@ -525,11 +558,17 @@ if CommandLine.arguments.contains("--self-test") {
     assert(MicIndicator.resolve(connected: true, requested: true, healthy: true, level: 0.5) == .signal)
     for state in MicIndicator.allCases {
         let preview = meterImage(state == .quiet ? [0, 0, 0, 0] : [0.1, 0.4, 0.9, 0.5], state: state)
-        assert(preview.isTemplate && preview.size.width == (state == .standby ? 16 : 26))
+        assert(preview.isTemplate && preview.size.width == (state == .standby ? 16 : 32))
         if let data = preview.tiffRepresentation, let bitmap = NSBitmapImageRep(data: data),
            let png = bitmap.representation(using: .png, properties: [:]) {
             try! png.write(to: URL(fileURLWithPath: ".build/indicator-\(state.rawValue).png"))
         }
+    }
+    let enhancedIcon = meterImage([0.6], state: .signal, enhanced: true)
+    assert(enhancedIcon.isTemplate && enhancedIcon.size == NSSize(width: 32, height: 22))
+    if let data = enhancedIcon.tiffRepresentation, let bitmap = NSBitmapImageRep(data: data),
+       let png = bitmap.representation(using: .png, properties: [:]) {
+        try! png.write(to: URL(fileURLWithPath: ".build/indicator-enhanced.png"))
     }
     print("PASS: connection, unmonitored input, waiting, healthy quiet and signal indicators")
     print("PASS: meter mapping, silent/stale state, icon rendering")

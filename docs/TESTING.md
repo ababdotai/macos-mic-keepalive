@@ -62,3 +62,5 @@ Device tiles: two columns, selected border/checkmark, two-line names, frequency 
 Physical/virtual ordering: use AVCaptureDevice transport type (virtual/aggregate) rather than display-name guesses. Physical devices precede a collapsed virtual-device group. Unit tests verify physical-first ordering even if a virtual device arrives first, plus explicit expansion. Device tiles use native NSGlassEffectView surfaces on macOS 26+, with interactive glass enabled on macOS 27+.
 
 Verify the panel stays 380 points wide when expanding virtual devices and long inline help. Startup settings must remain visible without a disclosure; their check states follow login/restore preferences.
+
+Verify three linked states: off, keep-alive only, and keep-alive with boost. Enabling boost enables keep-alive; disabling boost preserves keep-alive; disabling keep-alive disables both and releases capture. Check the persistent switch-back notice after stopping boost. Healthy boost displays a bold plus above the shield; pending/failed capture must not show a healthy boost badge.

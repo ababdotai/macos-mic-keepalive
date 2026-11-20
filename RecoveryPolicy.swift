@@ -6,6 +6,15 @@ struct KeepAliveIntent {
     var selectedID: String?
     var requested = false
     var sleeping = false
+    private(set) var enhancement = false
+    mutating func setEnhancement(_ enabled: Bool) {
+        enhancement = enabled
+        if enabled { requested = true }
+    }
+    mutating func setRequested(_ enabled: Bool) {
+        requested = enabled
+        if !enabled { enhancement = false }
+    }
 
     init(selectedID: String? = nil, restoreOnLaunch: Bool = false, wasRequested: Bool = false) {
         self.selectedID = selectedID
@@ -86,6 +95,19 @@ func runRecoveryTests() {
     routing.followSystemInput(other, previous: mic, availableIDs: [mic, other])
     assert(routing.selectedID == mic)
     print("PASS: system route sync, live switching intent, disconnect fallback and sleep protection")
+    var modes = KeepAliveIntent(selectedID: mic)
+    modes.setEnhancement(true)
+    assert(modes.requested && modes.enhancement)
+    assert(modes.readiness(availableIDs: [mic], authorized: true) == .ready(mic))
+    modes.setEnhancement(false)
+    assert(modes.requested && !modes.enhancement)
+    modes.setEnhancement(true)
+    modes.setRequested(false)
+    assert(!modes.requested && !modes.enhancement)
+    assert(modes.readiness(availableIDs: [mic], authorized: true) == .stopped)
+    modes.setRequested(true)
+    assert(modes.requested && !modes.enhancement)
+    print("PASS: boost enables keep-alive, disabling boost preserves capture, master stop disables both")
     let gate = CaptureGeneration()
     let starting = gate.advance()
     let stopped = gate.advance()

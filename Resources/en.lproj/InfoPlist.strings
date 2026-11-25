@@ -1,2 +1,2 @@
-"CFBundleDisplayName" = "Mic KeepAlive";
+"CFBundleDisplayName" = "KeepMicAlive";
 "NSMicrophoneUsageDescription" = "Keep your microphone ready, show input levels, and optionally send boosted audio to BlackHole. No audio is saved or uploaded.";

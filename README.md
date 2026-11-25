@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="assets/logo.png" alt="Mic KeepAlive — pearlescent microphone on a black tile" width="128" />
+  <img src="assets/logo.png" alt="KeepMicAlive — pearlescent microphone on a black tile" width="128" />
 </p>
 
-<h2 align="center">macos-mic-keepalive</h2>
+<h2 align="center">KeepMicAlive</h2>
 
 <p align="center">
   <strong>Keep your mic awake. Keep your coding flow.</strong><br/>
@@ -10,8 +10,10 @@
 </p>
 
 <p align="center">
-  macOS 14+ · Native Swift · English / 中文<br/>
-  <a href="https://github.com/ababdotai/macos-mic-keepalive/releases/latest/download/Mic-KeepAlive-universal.dmg"><strong>Download for macOS</strong></a> ·
+  <strong>Support</strong><br/>
+  <img src="https://img.shields.io/badge/macOS-14%2B-000000?style=flat-square&amp;logo=apple&amp;logoColor=white" alt="Supports macOS 14 and later" /><br/>
+  Apple Silicon &amp; Intel · English / 中文<br/>
+  <a href="https://github.com/ababdotai/KeepMicAlive/releases/latest/download/KeepMicAlive-universal.dmg"><strong>Download for macOS</strong></a> ·
   <a href="#why">Why</a> · <a href="#how">How</a> · <a href="#what-you-get">What you get</a>
 </p>
 
@@ -27,15 +29,15 @@ With your MacBook closed and an external display connected, a Bluetooth mic may 
 
 Keeps an audio stream open on your chosen microphone. **No recordings. No uploads.**
 
-**[Download the app](https://github.com/ababdotai/macos-mic-keepalive/releases/latest/download/Mic-KeepAlive-universal.dmg)** · macOS 14+ · Apple Silicon & Intel · No compilation needed.
+**[Download the app](https://github.com/ababdotai/KeepMicAlive/releases/latest/download/KeepMicAlive-universal.dmg)** · macOS 14+ · Apple Silicon & Intel · No compilation needed.
 
-Open the DMG, drag **Mic KeepAlive** into **Applications**, and launch it. Allow microphone access, then choose your mic and start keep-alive from the menu bar. Use the same mic in your dictation app.
+Open the DMG, drag **KeepMicAlive** into **Applications**, and launch it. If upgrading from Mic KeepAlive, quit and remove the old app to avoid duplicates; settings use the same app identifier. Allow microphone access, then choose your mic and start keep-alive from the menu bar. Use the same mic in your dictation app.
 
-**New in [1.5.0](https://github.com/ababdotai/macos-mic-keepalive/releases/tag/v1.5.0):** a persistent native control panel, optional whisper boost, and reliable BlackHole routing when AirPods switch audio modes.
+**[1.5.1](https://github.com/ababdotai/KeepMicAlive/releases/tag/v1.5.1):** renamed to KeepMicAlive. Includes the native control panel, optional whisper boost, and AirPods / BlackHole routing fix.
 
 Enable **Launch at login** and/or **Restore previous keep-alive on launch** in the menu if needed. Restore applies only when keep-alive was on at the previous exit. macOS may ask you to approve the login item.
 
-<sub>Not Apple-notarized. If macOS blocks the first launch, use System Settings → Privacy & Security → Open Anyway for this trusted download. [Apple’s instructions](https://support.apple.com/en-us/102445). [ZIP alternative](https://github.com/ababdotai/macos-mic-keepalive/releases/latest/download/Mic-KeepAlive-universal.zip).</sub>
+<sub>Not Apple-notarized. If macOS blocks the first launch, use System Settings → Privacy & Security → Open Anyway for this trusted download. [Apple’s instructions](https://support.apple.com/en-us/102445). [ZIP alternative](https://github.com/ababdotai/KeepMicAlive/releases/latest/download/KeepMicAlive-universal.zip).</sub>
 
 # What you get
 

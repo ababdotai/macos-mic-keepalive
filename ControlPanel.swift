@@ -142,7 +142,7 @@ final class ControlPanel: NSViewController {
         stack.translatesAutoresizingMaskIntoConstraints = false; document.addSubview(stack)
         NSLayoutConstraint.activate([document.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor), stack.leadingAnchor.constraint(equalTo: document.leadingAnchor, constant: 14), stack.trailingAnchor.constraint(equalTo: document.trailingAnchor, constant: -14), stack.topAnchor.constraint(equalTo: document.topAnchor, constant: 16), stack.bottomAnchor.constraint(equalTo: document.bottomAnchor, constant: -16)])
         func add(_ v: NSView) { stack.addArrangedSubview(v); v.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true }
-        let brand = label("Mic KeepAlive", size: 16, weight: .semibold)
+        let brand = label("KeepMicAlive", size: 16, weight: .semibold)
         let appIcon = NSImageView(image: NSImage(named: NSImage.applicationIconName) ?? NSImage())
         appIcon.widthAnchor.constraint(equalToConstant: 28).isActive = true
         appIcon.heightAnchor.constraint(equalToConstant: 28).isActive = true

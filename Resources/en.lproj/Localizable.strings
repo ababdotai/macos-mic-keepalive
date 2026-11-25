@@ -14,7 +14,7 @@
 "no_audio" = "No audio received";
 "active" = "Active · Audio stream healthy";
 "stop" = "Stop keep-alive";
-"title" = "Mic KeepAlive";
+"title" = "KeepMicAlive";
 "ok" = "Got it";
 "starting" = "Starting: %@…";
 "instructions" = "Everyday use\nChoose a physical mic and turn on “Keep microphone ready” to reduce wake-up delays. Turning keep-alive off also disables boost and releases the mic. Quitting releases it too.\n\nSwitching devices\nSelecting a mic also changes the system input. Normal keep-alive follows system input changes; whisper boost stays with the selected mic. Apps with their own input selection must be changed separately.\n\nAutomatic recovery\nCapture pauses during sleep or disconnection and resumes after wake or reconnection of the same mic. Stopping manually cancels recovery.\n\nStartup\n“Launch at login” starts the app. “Restore previous keep-alive on launch” resumes capture only if keep-alive was on when you last quit. Both settings are independent and off by default. If login approval is needed, follow the link to System Settings. Place the app in Applications first.\n\nPrivacy and notes\nNo audio is saved or uploaded. Bluetooth capture may affect headphone quality and battery life. Language follows macOS; relaunch after changing it.";

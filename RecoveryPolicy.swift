@@ -145,7 +145,7 @@ final class DeviceUsage {
     }
 }
 func runDeviceUsageTests() {
-    let suite = "MicKeepAlive-tests-" + UUID().uuidString
+    let suite = "KeepMicAlive-tests-" + UUID().uuidString
     let defaults = UserDefaults(suiteName: suite)!
     defer { defaults.removePersistentDomain(forName: suite) }
     let usage = DeviceUsage(defaults: defaults)

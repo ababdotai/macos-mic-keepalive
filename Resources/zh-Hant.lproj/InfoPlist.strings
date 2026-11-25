@@ -1,2 +1,2 @@
-"CFBundleDisplayName" = "麥克風保活";
+"CFBundleDisplayName" = "KeepMicAlive";
 "NSMicrophoneUsageDescription" = "保持麥克風就緒、顯示電平，並可將增強聲音傳送至 BlackHole。不儲存、不上傳聲音。";

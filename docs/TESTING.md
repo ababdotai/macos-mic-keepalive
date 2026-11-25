@@ -64,3 +64,15 @@ Physical/virtual ordering: use AVCaptureDevice transport type (virtual/aggregate
 Verify the panel stays 380 points wide when expanding virtual devices and long inline help. Startup settings must remain visible without a disclosure; their check states follow login/restore preferences.
 
 Verify three linked states: off, keep-alive only, and keep-alive with boost. Enabling boost enables keep-alive; disabling boost preserves keep-alive; disabling keep-alive disables both and releases capture. Check the persistent switch-back notice after stopping boost. Healthy boost displays a bold plus above the shield; pending/failed capture must not show a healthy boost badge.
+
+### Bluetooth output-route recovery
+
+Start physical capture before binding the enhancement engine to BlackHole. A deferred output route/format change should stop and rebind only that engine, preserving the physical capture session. Check the destination after engine start as well as before scheduling audio; do not change system default routes. The retry status must remain visible while capture is healthy but enhancement output is unavailable.
+
+`make test-enhancement-loopback` now exercises three stopped-engine route invalidations for each 48 kHz, 24 kHz and 16 kHz source, confirms audio returns through BlackHole, and verifies default input/output remain unchanged. The temporary alternate route never receives queued test audio. The injection helper is compiled only with `ROUTING_TESTS`.
+
+Hardware check: with the lid closed and AirPods connected, enable boost and observe at least 20 seconds. Confirm healthy boost and dictation input on BlackHole. Repeat after reconnecting AirPods; this check is separate from the synthetic loopback test.
+
+On the closed-lid AirPods reproduction, after binding BlackHole the engine output node's client `inputFormat` remained mono/24 kHz while its hardware `outputFormat` was stereo/48 kHz. Configure the graph from `outputFormat`; checking the stale client channel count rejects a valid BlackHole route. Run the loopback regression while AirPods input is active to cover that initial state.
+
+2026-11-25: with the lid closed and AirPods capture active, loopback passed at 16/24/48 kHz, including three output-route invalidations per rate. The hardware format differed from the stale client format (stereo/48 kHz versus mono/24 kHz). This verifies routing and resampling, not dictation accuracy.

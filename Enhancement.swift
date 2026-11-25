@@ -14,12 +14,15 @@ final class EnhancementRouter {
     static let destinationUID = "BlackHole2ch_UID"
     private let engine = AVAudioEngine()
     private let player = AVAudioPlayerNode()
-    private let format: AVAudioFormat
+    private var format: AVAudioFormat
     private let deviceID: AudioDeviceID
     private var converter: AVAudioConverter?
     private var inputFormat: AVAudioFormat?
     private let lock = NSLock()
     private var queued = 0
+    private var generation = 0
+    private var failures = 0
+    private(set) var retryAt: TimeInterval = 0
     private(set) var error: String?
     let gainDB: Float
 
@@ -37,44 +40,75 @@ final class EnhancementRouter {
     }
     init(gainDB: Float) throws {
         self.gainDB = gainDB
-        var device = try Self.destination()
+        let device = try Self.destination()
         self.deviceID = device
-        // Bind the output before starting the engine. Never change the default output.
-        guard let unit = engine.outputNode.audioUnit else { throw Self.failure(L("enhance_failed")) }
-        let status = AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0, &device, UInt32(MemoryLayout<AudioDeviceID>.size))
-        guard status == noErr else { throw Self.failure("\(L("enhance_failed")) (\(status))") }
-        var actual: AudioDeviceID = 0, size = UInt32(MemoryLayout<AudioDeviceID>.size)
-        guard AudioUnitGetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0, &actual, &size) == noErr, actual == device else { throw Self.failure(L("enhance_failed")) }
-        let output = engine.outputNode.inputFormat(forBus: 0)
-        guard output.sampleRate > 0, output.channelCount == 2,
-              let format = AVAudioFormat(standardFormatWithSampleRate: output.sampleRate, channels: 2) else { throw Self.failure(L("enhance_failed")) }
-        self.format = format
+        // The capture session must already be running before this graph is bound:
+        // starting Bluetooth input can reconfigure the engine's default I/O unit.
+        guard let initialFormat = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 2) else {
+            throw Self.failure(L("enhance_failed"))
+        }
+        format = initialFormat
         engine.attach(player)
+        do { try bindOutput() }
+        catch {
+            // Keep the physical input running while deferred Bluetooth route
+            // notifications settle; retry this output on the sample queue.
+            resetOutput(); self.error = error.localizedDescription
+            failures = 1; retryAt = ProcessInfo.processInfo.systemUptime + 2
+        }
+    }
+    private func currentOutput() -> AudioDeviceID? {
+        guard let unit = engine.outputNode.audioUnit else { return nil }
+        var actual: AudioDeviceID = 0, size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        guard AudioUnitGetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0, &actual, &size) == noErr else { return nil }
+        return actual
+    }
+    private func resetOutput() {
+        player.stop(); engine.stop()
+        lock.lock(); generation += 1; queued = 0; lock.unlock()
+        converter = nil; inputFormat = nil
+    }
+    /// Repair only the output graph. Do not restart the Bluetooth microphone or
+    /// write the system's default route, which would retrigger the mode change.
+    private func bindOutput() throws {
+        resetOutput()
+        guard SystemAudio.uid(deviceID) == Self.destinationUID,
+              let unit = engine.outputNode.audioUnit else { throw Self.failure(L("enhance_missing")) }
+        var device = deviceID
+        let status = AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0, &device, UInt32(MemoryLayout<AudioDeviceID>.size))
+        guard status == noErr, currentOutput() == deviceID else { throw Self.failure("\(L("enhance_failed")) (bind: \(status))") }
+        // inputFormat is the client-side format, which can still be the
+        // previous Bluetooth route (mono/24 kHz). Read the newly bound device's
+        // hardware format, then reconnect the graph with that stereo format.
+        let output = engine.outputNode.outputFormat(forBus: 0)
+        guard output.sampleRate > 0, output.channelCount == 2,
+              let newFormat = AVAudioFormat(standardFormatWithSampleRate: output.sampleRate, channels: 2) else { throw Self.failure(L("enhance_failed") + " (BlackHole format: \(output.sampleRate) Hz, \(output.channelCount) channels)") }
+        format = newFormat
+        engine.disconnectNodeOutput(player)
+        engine.disconnectNodeOutput(engine.mainMixerNode)
         engine.connect(player, to: engine.mainMixerNode, format: format)
         engine.connect(engine.mainMixerNode, to: engine.outputNode, format: format)
         try engine.start()
+        // Starting can itself deliver a deferred reconfiguration. Never queue audio
+        // until the post-start route has also been checked.
+        guard currentOutput() == deviceID else {
+            resetOutput(); throw Self.failure(L("enhance_failed") + " (output route changed)")
+        }
         player.play()
     }
     // Called only on the sample queue. Bound queued audio to avoid growing latency.
     func consume(_ sample: CMSampleBuffer) {
-        guard error == nil else { return }
-        // CoreAudio can deliver a deferred configuration change after selecting the
-        // output device. Resume only if it is STILL the explicitly pinned BlackHole.
-        var current: AudioDeviceID = 0, size = UInt32(MemoryLayout<AudioDeviceID>.size)
-        guard let unit = engine.outputNode.audioUnit,
-              AudioUnitGetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0, &current, &size) == noErr,
-              current == deviceID else {
-            stop(); error = L("enhance_failed") + " (output route changed)"; return
-        }
-        if !engine.isRunning {
-            let hardware = engine.outputNode.inputFormat(forBus: 0)
-            guard hardware.sampleRate == format.sampleRate && hardware.channelCount == format.channelCount else {
-                error = L("enhance_failed") + " (output format changed)"; return
+        let now = ProcessInfo.processInfo.systemUptime
+        if error != nil && now < retryAt { return }
+        if error != nil || currentOutput() != deviceID || !engine.isRunning {
+            do { try bindOutput(); error = nil; failures = 0; retryAt = 0 }
+            catch {
+                resetOutput()
+                failures += 1
+                self.error = error.localizedDescription
+                retryAt = now + min(8, pow(2, Double(min(failures, 3))))
+                return
             }
-            do {
-                player.stop(); converter?.reset()
-                try engine.start(); player.play()
-            } catch { self.error = L("enhance_failed") + " (\(error.localizedDescription))"; return }
         }
         guard let description = CMSampleBufferGetFormatDescription(sample),
               let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(description),
@@ -103,13 +137,27 @@ final class EnhancementRouter {
         for channel in 0..<Int(format.channelCount) {
             for frame in 0..<Int(output.frameLength) { channels[channel][frame] = enhancedSample(channels[channel][frame], gainDB: gainDB) }
         }
-        lock.lock(); queued += 1; lock.unlock()
+        lock.lock(); queued += 1; let ticket = generation; lock.unlock()
         player.scheduleBuffer(output, completionCallbackType: .dataConsumed) { [weak self] _ in
             guard let self else { return }
-            self.lock.lock(); self.queued -= 1; self.lock.unlock()
+            self.lock.lock()
+            if self.generation == ticket { self.queued -= 1 }
+            self.lock.unlock()
         }
     }
-    func stop() { player.stop(); engine.stop() }
+    #if ROUTING_TESTS
+    /// Invalidate only this engine's route, with playback stopped. No system route
+    /// changes and no test samples may reach the temporary device.
+    func invalidateOutputForTesting(_ device: AudioDeviceID) throws {
+        resetOutput()
+        guard let unit = engine.outputNode.audioUnit else { throw Self.failure("missing output unit") }
+        var target = device
+        let status = AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0, &target, UInt32(MemoryLayout<AudioDeviceID>.size))
+        guard status == noErr else { throw Self.failure("test route change: \(status)") }
+    }
+    var isBoundToDestination: Bool { currentOutput() == deviceID && engine.isRunning }
+    #endif
+    func stop() { resetOutput() }
 }
 
 func runEnhancementTests() {

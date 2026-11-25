@@ -37,7 +37,7 @@ func sample(rate: Double, offset: Int) -> CMSampleBuffer {
     assert(CMSampleBufferCreateReady(allocator: nil, dataBuffer: block, formatDescription: description, sampleCount: count, sampleTimingEntryCount: 1, sampleTimingArray: &timing, sampleSizeEntryCount: 1, sampleSizeArray: &length, sampleBufferOut: &result) == noErr)
     return result!
 }
-for rate in [48000.0, 16000.0] {
+for rate in [48000.0, 24000.0, 16000.0] {
     let router = try EnhancementRouter(gainDB: 12)
     lock.lock(); peak = 0; lock.unlock()
     for i in 0..<120 {
@@ -45,10 +45,27 @@ for rate in [48000.0, 16000.0] {
         Thread.sleep(forTimeInterval: 0.01)
     }
     Thread.sleep(forTimeInterval: 0.1)
-    router.stop()
     lock.lock(); let measured = peak; lock.unlock()
     print("BlackHole loopback: input rate=\(rate), source peak=0.001, measured peak=\(measured), error=\(router.error ?? "none")")
     assert(router.error == nil && measured > 0.0035 && measured < 0.0045)
+    #if ROUTING_TESTS
+    if let alternate = originalOutput, alternate != destination {
+        for cycle in 0..<3 {
+            try router.invalidateOutputForTesting(alternate)
+            assert(!router.isBoundToDestination)
+            lock.lock(); peak = 0; lock.unlock()
+            for i in 0..<120 {
+                router.consume(sample(rate: rate, offset: i * Int(rate/100)))
+                Thread.sleep(forTimeInterval: 0.01)
+            }
+            lock.lock(); let recovered = peak; lock.unlock()
+            assert(router.isBoundToDestination && router.error == nil)
+            assert(recovered > 0.0035 && recovered < 0.0045)
+            print("PASS: pinned output recovery cycle \(cycle + 1), rate=\(rate), peak=\(recovered)")
+        }
+    }
+    #endif
+    router.stop()
 }
 AudioDeviceStop(destination, proc)
 AudioDeviceDestroyIOProcID(destination, proc!)

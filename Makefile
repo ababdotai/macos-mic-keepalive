@@ -35,6 +35,6 @@ clean:
 # Explicit opt-in: sends a quiet synthetic tone only to BlackHole and reads it back.
 test-enhancement-loopback:
 	mkdir -p .build
-	$(SWIFTC) $(FLAGS) Localization.swift SystemAudio.swift Enhancement.swift tests/EnhancementLoopback/main.swift -o .build/enhancement-check
+	$(SWIFTC) $(FLAGS) -DROUTING_TESTS Localization.swift SystemAudio.swift Enhancement.swift tests/EnhancementLoopback/main.swift -o .build/enhancement-check
 	cp -R Resources/. .build/
 	.build/enhancement-check

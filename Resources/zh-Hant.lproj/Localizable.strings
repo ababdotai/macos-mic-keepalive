@@ -84,3 +84,5 @@
 
 
 "boost_stopped_notice" = "增強輸出已停止。請將語音輸入法的麥克風切回真實裝置。";
+
+"retrying_error" = "正在重試 · %@";

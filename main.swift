@@ -327,9 +327,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func reconcile() {
         guard !terminating else { return }
         refreshDevices()
+        var outputError: String?
         if enhancementEnabled, activeID != nil, !busy {
-            let error = sampleQueue.sync { sink.enhancement?.error }
-            if let error { recordFailure(error); suspendCapture() }
+            let outputState = sampleQueue.sync { (sink.enhancement?.error, sink.enhancement?.retryAt ?? 0) }
+            outputError = outputState.0
+            if let error = outputError {
+                lastError = error; retryAt = outputState.1
+            }
         }
         switch readiness {
         case .ready(let id):
@@ -341,7 +345,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if activeID != nil {
                     if !sink.recent() && now - startedAt > 10 {
                         recordFailure(L("no_audio")); suspendCapture()
-                    } else if sink.recent() { failures = 0; lastError = nil }
+                    } else if sink.recent() && outputError == nil { failures = 0; lastError = nil }
                 } else if now >= retryAt, let device = available.first(where: { $0.uniqueID == id }) {
                     startCapture(device)
                 }
@@ -360,11 +364,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard self.gate.contains(ticket) else { return }
             do {
                 self.clearSession()
-                if enhance {
-                    guard device.uniqueID != EnhancementRouter.destinationUID else { throw NSError(domain: "MicEnhancement", code: 2, userInfo: [NSLocalizedDescriptionKey: L("enhance_source")]) }
-                    let router = try EnhancementRouter(gainDB: gain)
-                    self.sampleQueue.sync { self.sink.enhancement = router }
-                }
                 let input = try AVCaptureDeviceInput(device: device)
                 let output = AVCaptureAudioDataOutput()
                 output.setSampleBufferDelegate(self.sink, queue: self.sampleQueue)
@@ -383,6 +382,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.session.startRunning()
                 guard self.session.isRunning else {
                     throw NSError(domain: "KeepAlive", code: 3, userInfo: [NSLocalizedDescriptionKey: L("stream_error")])
+                }
+                guard self.gate.contains(ticket) else { self.clearSession(); return }
+                if enhance {
+                    guard device.uniqueID != EnhancementRouter.destinationUID else { throw NSError(domain: "MicEnhancement", code: 2, userInfo: [NSLocalizedDescriptionKey: L("enhance_source")]) }
+                    let router = try EnhancementRouter(gainDB: gain)
+                    self.sampleQueue.sync { self.sink.enhancement = router }
                 }
                 DispatchQueue.main.async {
                     guard self.gate.contains(ticket), !self.terminating else { return }
@@ -436,8 +441,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .needsPermission: return L("permission")
         case .ready:
             if busy { return L("starting", selectedName ?? L("unknown_device")) }
+            if let lastError {
+                let seconds = Int(ceil(retryAt - now))
+                return seconds > 0 ? L("retry_error", String(seconds), lastError) : L("retrying_error", lastError)
+            }
             if activeID != nil { return sink.recent() ? L(enhancementEnabled ? "boost_active_status" : "active") : L("waiting") }
-            if let lastError { return L("retry_error", String(max(0, Int(ceil(retryAt - now)))), lastError) }
             return L("waiting")
         }
     }

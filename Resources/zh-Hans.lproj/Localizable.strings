@@ -86,3 +86,6 @@
 "boost_stopped_notice" = "增强输出已停止。请将语音输入法的麦克风切回真实设备。";
 
 "retrying_error" = "正在重试 · %@";
+
+"panel_virtual_expand" = "展开虚拟设备";
+"panel_virtual_collapse" = "收起虚拟设备";

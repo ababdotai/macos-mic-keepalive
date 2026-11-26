@@ -98,6 +98,11 @@ final class ControlPanel: NSViewController {
 
     private let source = NSScrollView()
     private let deviceStack = NSStackView()
+    private let virtualSource = NSScrollView()
+    private let virtualStack = NSStackView()
+    private var virtualHeight: NSLayoutConstraint!
+    private var virtualHeader: NSStackView!
+    private var virtualTitle: NSTextField!
     private var deviceHeight: NSLayoutConstraint!
     private var tiles: [DeviceTile] = []
     private var virtualButton: NSButton!
@@ -162,9 +167,31 @@ final class ControlPanel: NSViewController {
         system.font = .systemFont(ofSize: 11); system.textColor = .secondaryLabelColor
         captureHint.font = .systemFont(ofSize: 11); captureHint.textColor = .secondaryLabelColor
         retryButton = button("panel_retry", .retry)
-        virtualButton = button("panel_virtual", .virtualDevices)
-        virtualButton.isBordered = false; virtualButton.alignment = .left; virtualButton.imagePosition = .imageLeading
-        add(card([controlHeader(icon: keepIcon, symbol: "mic.fill", title: L("panel_keep"), subtitle: L("panel_keep_short"), control: keep), source, virtualButton, system, captureHint, retryButton]))
+        virtualSource.drawsBackground = false
+        virtualSource.hasVerticalScroller = true; virtualSource.autohidesScrollers = true
+        let virtualDocument = PanelDocument(); virtualDocument.translatesAutoresizingMaskIntoConstraints = false
+        virtualSource.documentView = virtualDocument
+        virtualStack.orientation = .vertical; virtualStack.spacing = 8; virtualStack.alignment = .leading
+        virtualStack.translatesAutoresizingMaskIntoConstraints = false; virtualDocument.addSubview(virtualStack)
+        virtualHeight = virtualSource.heightAnchor.constraint(equalToConstant: 48); virtualHeight.isActive = true
+        NSLayoutConstraint.activate([virtualDocument.widthAnchor.constraint(equalTo: virtualSource.contentView.widthAnchor), virtualStack.leadingAnchor.constraint(equalTo: virtualDocument.leadingAnchor), virtualStack.trailingAnchor.constraint(equalTo: virtualDocument.trailingAnchor), virtualStack.topAnchor.constraint(equalTo: virtualDocument.topAnchor), virtualStack.bottomAnchor.constraint(equalTo: virtualDocument.bottomAnchor)])
+        let virtualIcon = NSImageView(image: NSImage(systemSymbolName: "waveform.path", accessibilityDescription: nil) ?? NSImage())
+        virtualIcon.contentTintColor = .secondaryLabelColor
+        virtualIcon.widthAnchor.constraint(equalToConstant: 18).isActive = true
+        virtualIcon.heightAnchor.constraint(equalToConstant: 18).isActive = true
+        virtualTitle = label("", size: 12, weight: .semibold)
+        virtualButton = NSButton(title: "", target: nil, action: nil)
+        bind(virtualButton, .virtualDevices)
+        virtualButton.setButtonType(.momentaryPushIn); virtualButton.isBordered = false
+        (virtualButton.cell as? NSButtonCell)?.showsStateBy = []
+        virtualButton.imagePosition = .imageOnly; virtualButton.imageScaling = .scaleProportionallyDown
+        virtualButton.contentTintColor = .controlAccentColor
+        virtualButton.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 19, weight: .semibold)
+        virtualButton.widthAnchor.constraint(equalToConstant: 28).isActive = true
+        virtualButton.heightAnchor.constraint(equalToConstant: 28).isActive = true
+        virtualHeader = NSStackView(views: [virtualIcon, virtualTitle, NSView(), virtualButton])
+        virtualHeader.spacing = 8; virtualHeader.alignment = .centerY
+        add(card([controlHeader(icon: keepIcon, symbol: "mic.fill", title: L("panel_keep"), subtitle: L("panel_keep_short"), control: keep), source, virtualHeader, virtualSource, system, captureHint, retryButton]))
 
         bind(boost, .boost); boost.setAccessibilityLabel(L("panel_boost"))
         gain.target = self; gain.action = #selector(selectGain); gain.setAccessibilityLabel(L("panel_gain"))
@@ -303,28 +330,43 @@ final class ControlPanel: NSViewController {
         let stable = deviceSnapshot.compactMap { incoming[$0.id] } + state.devices.filter { !previousIDs.contains($0.id) }
         let ordered = stable.filter { !$0.isVirtual } + stable.filter { $0.isVirtual }
         let virtualCount = ordered.filter(\.isVirtual).count
-        virtualButton.isHidden = virtualCount == 0
-        virtualButton.title = L("panel_virtual", String(virtualCount))
-        virtualButton.image = NSImage(systemSymbolName: showVirtual ? "chevron.down" : "chevron.right", accessibilityDescription: nil)
+        virtualHeader.isHidden = virtualCount == 0
+        virtualSource.isHidden = !showVirtual || virtualCount == 0
+        virtualTitle.stringValue = L("panel_virtual", String(virtualCount))
+        virtualSource.setAccessibilityLabel(virtualTitle.stringValue)
+        virtualButton.state = showVirtual ? .on : .off
+        virtualButton.setAccessibilityExpanded(showVirtual)
+        let actionLabel = L(showVirtual ? "panel_virtual_collapse" : "panel_virtual_expand")
+        virtualButton.setAccessibilityLabel(actionLabel)
+        virtualButton.toolTip = actionLabel
+        virtualButton.image = NSImage(systemSymbolName: showVirtual ? "chevron.up.circle.fill" : "chevron.down.circle.fill", accessibilityDescription: nil)
+        source.isHidden = !ordered.contains(where: { !$0.isVirtual }) && virtualCount > 0
         let devices = ordered.filter { !$0.isVirtual || showVirtual }
 
-        if tiles.map(\.deviceID) != devices.map(\.id) || tiles.map(\.deviceName) != devices.map(\.name) || deviceStack.arrangedSubviews.isEmpty {
-            for row in deviceStack.arrangedSubviews { deviceStack.removeArrangedSubview(row); row.removeFromSuperview() }
+        if tiles.map(\.deviceID) != devices.map(\.id) || tiles.map(\.deviceName) != devices.map(\.name) || (deviceStack.arrangedSubviews.isEmpty && virtualStack.arrangedSubviews.isEmpty) {
+            for stack in [deviceStack, virtualStack] {
+                for row in stack.arrangedSubviews { stack.removeArrangedSubview(row); row.removeFromSuperview() }
+            }
             tiles = devices.map { device in
                 let tile = DeviceTile(device); tile.target = self; tile.action = #selector(selectSource(_:)); return tile
             }
-            if tiles.isEmpty {
-                deviceStack.addArrangedSubview(label(L("none"), size: 12, secondary: true))
-            } else {
-                for index in stride(from: 0, to: tiles.count, by: 2) {
-                    let left = deviceSurface(tiles[index])
-                    let right: NSView = index + 1 < tiles.count ? deviceSurface(tiles[index + 1]) : NSView()
+            let physical = tiles.filter { !$0.virtual }, virtual = tiles.filter { $0.virtual }
+            func populate(_ group: [DeviceTile], in stack: NSStackView) {
+                for index in stride(from: 0, to: group.count, by: 2) {
+                    let left = deviceSurface(group[index])
+                    let right: NSView = index + 1 < group.count ? deviceSurface(group[index + 1]) : NSView()
                     let row = NSStackView(views: [left, right]); row.distribution = .fillEqually; row.spacing = 8
                     left.widthAnchor.constraint(equalTo: right.widthAnchor).isActive = true
-                    deviceStack.addArrangedSubview(row); row.widthAnchor.constraint(equalTo: deviceStack.widthAnchor).isActive = true
+                    stack.addArrangedSubview(row); row.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
                 }
             }
-            deviceHeight.constant = min(172, max(28, CGFloat((tiles.count + 1) / 2) * 56 - 8))
+            populate(physical, in: deviceStack)
+            populate(virtual, in: virtualStack)
+            if devices.isEmpty && virtualCount == 0 {
+                deviceStack.addArrangedSubview(label(L("none"), size: 12, secondary: true))
+            }
+            deviceHeight.constant = min(172, max(28, CGFloat((physical.count + 1) / 2) * 56 - 8))
+            virtualHeight.constant = min(172, max(28, CGFloat((virtual.count + 1) / 2) * 56 - 8))
         }
         for (tile, device) in zip(tiles, devices) { tile.update(selected: device.id == state.selectedID, enabled: device.enabled && state.canToggle) }
         deviceSnapshot = ordered
@@ -392,8 +434,14 @@ final class ControlPanel: NSViewController {
         state.devices.insert(PanelDevice(id: "virtual", name: "Virtual input", enabled: true, isVirtual: true), at: 0)
         panel.beginPresentation(); panel.update(state)
         assert(panel.tiles.map(\.deviceID) == ["second", "mic"])
-        panel.showVirtual = true; panel.update(state)
+        assert(!panel.virtualHeader.isHidden && panel.virtualSource.isHidden)
+        panel.virtualButton.performClick(nil)
+        assert(panel.showVirtual && !panel.virtualSource.isHidden && panel.virtualButton.state == .on)
         assert(panel.tiles.map(\.deviceID) == ["second", "mic", "virtual"])
+        panel.virtualButton.performClick(nil)
+        assert(!panel.showVirtual && panel.virtualSource.isHidden && panel.virtualButton.state == .off)
+        state.selectedID = "virtual"; panel.update(state)
+        assert(panel.showVirtual && !panel.virtualSource.isHidden)
         state.enhancement = true; state.requested = true; state.sending = true; state.gain = 18
         panel.update(state)
         assert(panel.gain.isEnabled && panel.gain.selectedSegment == 2)

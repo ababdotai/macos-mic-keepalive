@@ -86,3 +86,6 @@
 "boost_stopped_notice" = "Boost output has stopped. Switch your dictation app back to a physical microphone.";
 
 "retrying_error" = "Retrying · %@";
+
+"panel_virtual_expand" = "Show virtual devices";
+"panel_virtual_collapse" = "Hide virtual devices";

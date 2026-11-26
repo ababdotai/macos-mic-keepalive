@@ -76,3 +76,5 @@ Hardware check: with the lid closed and AirPods connected, enable boost and obse
 On the closed-lid AirPods reproduction, after binding BlackHole the engine output node's client `inputFormat` remained mono/24 kHz while its hardware `outputFormat` was stereo/48 kHz. Configure the graph from `outputFormat`; checking the stale client channel count rejects a valid BlackHole route. Run the loopback regression while AirPods input is active to cover that initial state.
 
 2026-11-25: with the lid closed and AirPods capture active, loopback passed at 16/24/48 kHz, including three output-route invalidations per rate. The hardware format differed from the stale client format (stereo/48 kHz versus mono/24 kHz). This verifies routing and resampling, not dictation accuracy.
+
+Virtual-device disclosure uses a header above its own grid: down-circle when collapsed, up-circle when expanded. Check click and keyboard activation, hidden/empty groups, automatic expansion when selecting a virtual device externally, fixed panel width, and that the popover stays open.

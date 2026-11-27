@@ -17,7 +17,7 @@
 "title" = "KeepMicAlive";
 "ok" = "知道了";
 "starting" = "正在啟動：%@…";
-"instructions" = "日常使用\n選擇真實麥克風，開啟「保持麥克風就緒」，減少開口前的喚醒等待。關閉保活會同時關閉增強並釋放麥克風；結束應用程式也會釋放。\n\n裝置切換\n點選裝置會同步切換系統輸入。一般保活跟隨系統輸入；輕聲增強固定使用所選麥克風。語音輸入法若單獨指定了裝置，需在其中另行切換。\n\n自動恢復\n睡眠或斷線時暫停，喚醒或原裝置重新連線後恢復；手動停止則取消恢復。\n\n啟動設定\n「登入時啟動」負責啟動應用程式；「啟動後恢復上次保活」僅在上次結束時仍開啟保活的情況下恢復收音。兩項獨立，預設關閉。登入項目需要授權時，按提示前往系統設定；請先將應用程式放入 Applications。\n\n隱私與提示\n不儲存、不上傳聲音。藍牙收音可能影響耳機音質與續航。介面跟隨系統語言，修改後需重新啟動。";
+"instructions" = "日常使用\n選擇真實麥克風，開啟「保持麥克風就緒」，減少開口前的喚醒等待。關閉保活會同時關閉增強並釋放麥克風；結束應用程式也會釋放。\n\n裝置切換\n點選裝置會同步切換系統輸入。一般保活跟隨系統輸入；輕聲增強固定使用所選麥克風。語音輸入法若單獨指定了裝置，需在其中另行切換。\n\n自動恢復\n睡眠或斷線時暫停，喚醒或原裝置重新連線後恢復；手動停止則取消恢復。\n\n啟動設定\n「登入時啟動」負責啟動應用程式；「啟動後恢復上次保活」僅在上次結束時仍開啟保活的情況下恢復收音。兩項獨立，預設關閉。登入項目需要授權時，按提示前往系統設定；請先將應用程式放入 Applications。\n\n隱私與提示\n啟動時及每 8 小時連線公開 GitHub Releases 檢查版本。不儲存、不上傳聲音。藍牙收音可能影響耳機音質與續航。介面跟隨系統語言，修改後需重新啟動。";
 "retry_now" = "重試／檢查麥克風權限";
 "launch_at_login" = "登入時啟動";
 "login_approval" = "開啟登入項目設定…";
@@ -50,7 +50,7 @@
 "enhance_failed" = "增強輸出失敗，請檢查 BlackHole 2ch。";
 "enhance_running" = "輕聲增強輸出中 → BlackHole 2ch";
 "enhance_help" = "輕聲增強測試說明…";
-"enhance_instructions" = "1. 開啟增強\n在本工具中選擇真實麥克風，開啟「增強輕聲輸入」，會自動開啟保活。從「中 · +12 dB」開始。\n\n2. 設定語音輸入法\n在語音輸入法的麥克風設定中選擇 BlackHole 2ch。若沒有裝置選項，可在系統聲音設定中將輸入改為 BlackHole；本工具保持增強開啟與原麥克風不變。不要更改音樂輸出。\n\n3. 比較效果\n以相同音量讀同一句話，比較真實麥克風與 BlackHole 的辨識結果。雜訊變大就調低一級；聲音仍太小再調高。增強也會放大雜訊，不做 AI 降噪，辨識效果需實際比較。\n\n4. 結束使用\n先將語音輸入法（如有更改，也包括系統）的輸入切回真實麥克風，再關閉增強。關閉增強保留一般保活；關閉保活會同時關閉增強。關閉增強或結束應用程式後，BlackHole 不再收到本工具的聲音。\n\n重新啟動後增強預設關閉，強度恢復 +12 dB。不儲存、不上傳聲音；AirPods 收音仍可能影響音樂音質。";
+"enhance_instructions" = "1. 開啟增強\n在本工具中選擇真實麥克風，開啟「增強輕聲輸入」，會自動開啟保活。從「中 · +12 dB」開始。\n\n2. 設定語音輸入法\n在語音輸入法的麥克風設定中選擇 BlackHole 2ch。若沒有裝置選項，可在系統聲音設定中將輸入改為 BlackHole；本工具保持增強開啟與原麥克風不變。不要更改音樂輸出。\n\n3. 比較效果\n以相同音量讀同一句話，比較真實麥克風與 BlackHole 的辨識結果。雜訊變大就調低一級；聲音仍太小再調高。保持 BlackHole 和增益檔位不變，分別試開「輕度降噪」和「人聲清晰」。前者降低持續底噪，後者削弱轟鳴、突出咬字。若尾音變少或齒音更重，關閉對應選項。這是本機濾波，不是 AI 人聲分離；辨識效果需實際比較。\n\n4. 結束使用\n先將語音輸入法（如有更改，也包括系統）的輸入切回真實麥克風，再關閉增強。關閉增強保留一般保活；關閉保活會同時關閉增強。關閉增強或結束應用程式後，BlackHole 不再收到本工具的聲音。\n\n一般啟動時增強和兩個處理選項預設關閉，強度恢復 +12 dB；應用程式內更新重新啟動會恢復目前收音設定。不儲存、不上傳聲音；AirPods 收音仍可能影響音樂音質。";
 "panel_keep" = "保持麥克風就緒";
 "panel_boost" = "增強輕聲輸入";
 "panel_microphone" = "麥克風";
@@ -72,7 +72,7 @@
 "panel_install_hint" = "僅輕聲增強需要 BlackHole，一般保活無需安裝。\n\n1. 在即將開啟的官網下載安裝 2ch 版本。\n2. 按安裝程式提示授權或重新啟動。\n3. 回到面板，點選「重新偵測」。";
 "panel_keep_short" = "關閉後停止收音，同時關閉增強";
 "panel_boost_short" = "放大輕聲，開啟時自動開啟保活";
-"panel_restore_hint" = "僅恢復麥克風保活；重新啟動後輕聲增強保持關閉。";
+"panel_restore_hint" = "一般啟動僅恢復保活；應用程式內更新會恢復目前收音設定。";
 "panel_gain_low" = "輕 · +6 dB";
 "panel_gain_mid" = "中 · +12 dB";
 "panel_gain_high" = "強 · +18 dB";
@@ -89,3 +89,33 @@
 
 "panel_virtual_expand" = "展開虛擬裝置";
 "panel_virtual_collapse" = "收起虛擬裝置";
+
+"panel_noise_reduction" = "輕度降噪";
+"panel_voice_clarity" = "人聲清晰";
+"panel_noise_hint" = "降低持續底噪，每個頻段最多衰減約 6 dB，不設硬靜音門。";
+"panel_clarity_hint" = "削弱 80 Hz 以下的低頻轟鳴，適度增強 2.2 kHz 附近的人聲清晰度。";
+"panel_processing_hint" = "可選：降噪減少持續底噪，人聲清晰突出咬字。僅在增強開啟時生效。";
+
+"update_current_version" = "目前版本 %@";
+"update_check" = "檢查更新";
+"update_checking" = "正在檢查 GitHub Releases…";
+"update_checking_short" = "檢查中";
+"update_download" = "從 GitHub Releases 下載並安裝 v%@，完成後自動重新啟動並恢復目前收音設定。";
+"update_latest_short" = "已是最新";
+"update_latest" = "v%@ 已是最新版本，點擊可重新檢查。";
+"update_retry_short" = "重試";
+"update_network_error" = "無法檢查更新，請檢查網路後重試。";
+"update_invalid_response" = "無法讀取版本資訊，請稍後重試。";
+"update_missing_installer" = "發現新版本，但安裝檔尚未就緒，請稍後重試。";
+"update_no_release" = "暫時沒有已發佈的正式版本。";
+"update_rate_limited" = "GitHub 暫時無法使用或請求受限，請稍後重試。";
+"update_version_unknown" = "無法讀取目前版本，請使用打包後的應用程式檢查更新。";
+"update_open_failed" = "無法開啟 GitHub 下載連結。";
+"update_downloading" = "正在下載更新 · %@%%";
+"update_verifying_short" = "驗證中";
+"update_verifying" = "正在驗證並準備更新…";
+"update_restarting_short" = "重新啟動";
+"update_restarting" = "正在安裝更新並重新啟動，將恢復目前收音設定。";
+"update_install_failed" = "更新失敗，已保留原應用程式。%@";
+"update_move_app" = "請先將應用程式移到具有寫入權限的 Applications 資料夾，再檢查更新。";
+"update_manual_installer" = "此版本需要手動安裝，請開啟下載的 DMG 並取代應用程式。";

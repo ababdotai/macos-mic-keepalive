@@ -98,6 +98,8 @@ final class SampleSink: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var item: NSStatusItem!
     private let panel = ControlPanel()
+    private let updates = UpdateChecker()
+    private let installer = UpdateInstaller()
     private let popover = NSPopover()
     private var outsideMonitor: Any?
     private var localMonitor: Any?
@@ -105,6 +107,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var enhancementEnabled: Bool { intent.enhancement }
     private var boostStoppedNotice = false
     private var enhancementGain: Float = 12
+    private var voiceOptions = VoiceProcessingOptions()
     private var lastIndicator: MicIndicator?
     private let usage = DeviceUsage(defaults: .standard)
     private var intent = KeepAliveIntent()
@@ -140,8 +143,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         intent = KeepAliveIntent(selectedID: defaults.string(forKey: "selectedMicrophoneID"),
                                  restoreOnLaunch: defaults.bool(forKey: "restoreKeepAliveOnLaunch"),
                                  wasRequested: defaults.bool(forKey: "keepAliveRequested"))
-        defaults.set(intent.requested, forKey: "keepAliveRequested")
         selectedName = defaults.string(forKey: "selectedMicrophoneName")
+        var restoredUpdateToken: String?
+        if let token = UpdateResume.launchToken, let resume = try? UpdateResume.consume(token: token) {
+            restoredUpdateToken = token
+            intent = KeepAliveIntent(selectedID: resume.selectedID, restoreOnLaunch: resume.requested, wasRequested: resume.requested)
+            intent.setEnhancement(resume.enhancement)
+            enhancementGain = resume.gain
+            voiceOptions = VoiceProcessingOptions(noiseReduction: resume.noiseReduction, voiceClarity: resume.voiceClarity)
+            selectedName = resume.selectedName
+        }
+        defaults.set(intent.requested, forKey: "keepAliveRequested")
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         popover.contentViewController = panel
         popover.behavior = .applicationDefined
@@ -155,6 +167,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.chooseDevice = { [weak self] id in self?.selectDevice(id) }
         panel.toggleEnhancement = { [weak self] in self?.toggleEnhancement() }
         panel.chooseGain = { [weak self] gain in self?.changeEnhancementGain(gain) }
+        panel.toggleNoiseReduction = { [weak self] in
+            guard let self else { return }
+            self.voiceOptions.noiseReduction.toggle(); self.updateVoiceProcessing(); self.updateUI()
+        }
+        panel.toggleVoiceClarity = { [weak self] in
+            guard let self else { return }
+            self.voiceOptions.voiceClarity.toggle(); self.updateVoiceProcessing(); self.updateUI()
+        }
         panel.retry = { [weak self] in self?.retryCapture() }
         panel.toggleLogin = { [weak self] in self?.toggleLogin() }
         panel.toggleRestore = { [weak self] in self?.toggleRestore() }
@@ -168,6 +188,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         panel.loginSettings = { [weak self] in self?.openLoginSettings() }
         panel.quit = { [weak self] in self?.quitApp() }
+        updates.onChange = { [weak self] state in self?.panel.updateReleaseState(state) }
+        installer.onChange = { [weak self] state in self?.panel.updateInstallationState(state) }
+        installer.onPrepared = { [weak self] prepared in
+            guard let self else { return }
+            do {
+                let resume = UpdateResume(requested: self.intent.requested, enhancement: self.enhancementEnabled,
+                    gain: self.enhancementGain, noiseReduction: self.voiceOptions.noiseReduction, voiceClarity: self.voiceOptions.voiceClarity,
+                    selectedID: self.intent.selectedID, selectedName: self.selectedName)
+                try self.installer.launch(prepared, resume: resume) { NSApp.terminate(nil) }
+            } catch { self.installer.fail(error) }
+        }
+        panel.checkOrDownloadUpdate = { [weak self] in
+            guard let self else { return }
+            if let release = self.updates.state.available {
+                self.installer.begin(release)
+            } else { self.updates.check() }
+        }
         item.button?.target = self
         item.button?.action = #selector(togglePanel)
         outsideMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
@@ -187,6 +224,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         observe(workspace, NSWorkspace.didWakeNotification) { app in
             app.intent.sleeping = false; app.retryAt = 0; app.failures = 0; app.reconcile()
+            app.updates.checkIfDue()
         }
         for notification in [AVCaptureDevice.wasConnectedNotification, AVCaptureDevice.wasDisconnectedNotification] {
             observe(.default, notification) { $0.reconcile() }
@@ -197,6 +235,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         timer = Timer(timeInterval: 2, repeats: true) { [weak self] _ in self?.reconcile() }
         RunLoop.main.add(timer!, forMode: .common)
         reconcile()
+        updates.start()
+        if let token = restoredUpdateToken {
+            try? UpdateResume.acknowledge(token: token)
+            togglePanel()
+        }
+        let updateError = UpdateFiles.root.appendingPathComponent("last-update-error.txt")
+        if let detail = try? String(contentsOf: updateError, encoding: .utf8) {
+            try? FileManager.default.removeItem(at: updateError)
+            showError(L("update_install_failed", detail))
+        }
         if !defaults.bool(forKey: "hasShownHelp") {
             defaults.set(true, forKey: "hasShownHelp"); showHelp()
         }
@@ -287,8 +335,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func changeEnhancementGain(_ gain: Float) {
         guard [Float(6), 12, 18].contains(gain), gain != enhancementGain else { return }
         enhancementGain = gain
-        retryAt = 0; failures = 0; lastError = nil
-        if enhancementEnabled && activeID != nil { suspendCapture() } else { updateUI() }
+        updateVoiceProcessing(); updateUI()
+    }
+    private func updateVoiceProcessing() {
+        let gain = enhancementGain, options = voiceOptions
+        sampleQueue.async { self.sink.enhancement?.updateProcessing(gainDB: gain, options: options) }
     }
     private func setRequested(_ value: Bool) {
         if !value && enhancementEnabled { boostStoppedNotice = true }
@@ -359,7 +410,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func startCapture(_ device: AVCaptureDevice) {
         let ticket = gate.advance()
         activeID = device.uniqueID; busy = true; startedAt = now
-        let enhance = enhancementEnabled, gain = enhancementGain
+        let enhance = enhancementEnabled, gain = enhancementGain, options = voiceOptions
         captureQueue.async {
             guard self.gate.contains(ticket) else { return }
             do {
@@ -386,12 +437,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard self.gate.contains(ticket) else { self.clearSession(); return }
                 if enhance {
                     guard device.uniqueID != EnhancementRouter.destinationUID else { throw NSError(domain: "MicEnhancement", code: 2, userInfo: [NSLocalizedDescriptionKey: L("enhance_source")]) }
-                    let router = try EnhancementRouter(gainDB: gain)
+                    let router = try EnhancementRouter(gainDB: gain, options: options)
                     self.sampleQueue.sync { self.sink.enhancement = router }
                 }
                 DispatchQueue.main.async {
                     guard self.gate.contains(ticket), !self.terminating else { return }
-                    self.busy = false; self.startedAt = self.now; self.reconcile()
+                    self.busy = false; self.startedAt = self.now
+                    self.updateVoiceProcessing() // Apply any changes made while capture was starting.
+                    self.reconcile()
                 }
             } catch {
                 self.clearSession()
@@ -473,7 +526,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             canRetry: !busy && !intent.sleeping,
             loginState: loginStatus == .enabled ? .on : (loginStatus == .requiresApproval ? .mixed : .off),
             loginPending: loginStatus == .requiresApproval,
-            restore: UserDefaults.standard.bool(forKey: "restoreKeepAliveOnLaunch"), boostStoppedNotice: boostStoppedNotice))
+            restore: UserDefaults.standard.bool(forKey: "restoreKeepAliveOnLaunch"), boostStoppedNotice: boostStoppedNotice,
+            voiceOptions: voiceOptions))
         item.button?.title = ""
         drawMeter()
     }
@@ -524,6 +578,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         terminating = true; gate.advance()
         timer?.invalidate(); meterTimer?.invalidate()
+        updates.stop()
+        installer.stop()
         if let outsideMonitor { NSEvent.removeMonitor(outsideMonitor) }
         if let localMonitor { NSEvent.removeMonitor(localMonitor) }
         for (center, token) in observers { center.removeObserver(token) }

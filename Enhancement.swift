@@ -2,8 +2,7 @@ import AVFoundation
 import CoreAudio
 import AudioToolbox
 
-/// A deliberately conservative prototype: fixed gain and smooth peak compression.
-/// No noise gate (which could erase whispered consonants), no recording, no playback to speakers.
+/// Gain-only reference, also used to verify the processing bypass.
 func enhancedSample(_ input: Float, gainDB: Float) -> Float {
     guard input.isFinite else { return 0 }
     let amplified = input * pow(10, min(18, max(0, gainDB)) / 20)
@@ -24,7 +23,9 @@ final class EnhancementRouter {
     private var failures = 0
     private(set) var retryAt: TimeInterval = 0
     private(set) var error: String?
-    let gainDB: Float
+    private(set) var gainDB: Float
+    private var voiceOptions: VoiceProcessingOptions
+    private var processors: [VoiceProcessor] = []
 
     static func destination() throws -> AudioDeviceID {
         var property = SystemAudio.address(kAudioHardwarePropertyDevices), size: UInt32 = 0
@@ -38,8 +39,9 @@ final class EnhancementRouter {
     private static func failure(_ message: String) -> NSError {
         NSError(domain: "MicEnhancement", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
     }
-    init(gainDB: Float) throws {
+    init(gainDB: Float, options: VoiceProcessingOptions = VoiceProcessingOptions()) throws {
         self.gainDB = gainDB
+        self.voiceOptions = options
         let device = try Self.destination()
         self.deviceID = device
         // The capture session must already be running before this graph is bound:
@@ -66,7 +68,7 @@ final class EnhancementRouter {
     private func resetOutput() {
         player.stop(); engine.stop()
         lock.lock(); generation += 1; queued = 0; lock.unlock()
-        converter = nil; inputFormat = nil
+        converter = nil; inputFormat = nil; processors = []
     }
     /// Repair only the output graph. Do not restart the Bluetooth microphone or
     /// write the system's default route, which would retrigger the mode change.
@@ -96,7 +98,11 @@ final class EnhancementRouter {
         }
         player.play()
     }
-    // Called only on the sample queue. Bound queued audio to avoid growing latency.
+    // Called only on the sample queue; the next buffer uses the new parameters.
+    func updateProcessing(gainDB: Float, options: VoiceProcessingOptions) {
+        self.gainDB = gainDB; self.voiceOptions = options
+    }
+    // Bound queued audio to avoid growing latency.
     func consume(_ sample: CMSampleBuffer) {
         let now = ProcessInfo.processInfo.systemUptime
         if error != nil && now < retryAt { return }
@@ -120,6 +126,7 @@ final class EnhancementRouter {
         if inputFormat != sourceFormat {
             converter = AVAudioConverter(from: sourceFormat, to: format)
             inputFormat = sourceFormat
+            processors = (0..<Int(format.channelCount)).map { _ in VoiceProcessor(sampleRate: format.sampleRate, gainDB: gainDB) }
         }
         guard let converter else { error = L("enhance_failed") + " (converter unavailable)"; return }
         lock.lock(); let full = queued >= 4; lock.unlock()
@@ -135,7 +142,7 @@ final class EnhancementRouter {
         guard status != .error, conversionError == nil else { error = L("enhance_failed") + " (\(conversionError?.localizedDescription ?? "conversion failed"))"; return }
         guard output.frameLength > 0, let channels = output.floatChannelData else { return }
         for channel in 0..<Int(format.channelCount) {
-            for frame in 0..<Int(output.frameLength) { channels[channel][frame] = enhancedSample(channels[channel][frame], gainDB: gainDB) }
+            processors[channel].process(channels[channel], count: Int(output.frameLength), gainDB: gainDB, options: voiceOptions)
         }
         lock.lock(); queued += 1; let ticket = generation; lock.unlock()
         player.scheduleBuffer(output, completionCallbackType: .dataConsumed) { [weak self] _ in

@@ -29,13 +29,18 @@ def main():
     macos.mkdir(parents=True)
     shutil.copytree(ROOT / 'Resources', resources)
     slices = []
+    helpers = []
     for arch in ('arm64', 'x86_64'):
         binary = BUILD / f'KeepMicAlive-{arch}'
         run('xcrun', 'swiftc', '-target', f'{arch}-apple-macosx14.0',
             '-swift-version', '5', '-O', '-framework', 'AppKit',
-            '-framework', 'AVFoundation', '-framework', 'ServiceManagement', '-framework', 'CoreAudio', '-framework', 'AudioToolbox', ROOT / 'Localization.swift', ROOT / 'RecoveryPolicy.swift',
-            ROOT / 'SystemAudio.swift', ROOT / 'Enhancement.swift', ROOT / 'ControlPanel.swift', ROOT / 'main.swift', '-o', binary)
+            '-framework', 'AVFoundation', '-framework', 'ServiceManagement', '-framework', 'CoreAudio', '-framework', 'AudioToolbox', '-framework', 'Accelerate', ROOT / 'Localization.swift', ROOT / 'RecoveryPolicy.swift',
+            ROOT / 'SystemAudio.swift', ROOT / 'VoiceProcessing.swift', ROOT / 'Enhancement.swift', ROOT / 'UpdateSupport.swift', ROOT / 'Updates.swift', ROOT / 'UpdateInstaller.swift', ROOT / 'ControlPanel.swift', ROOT / 'main.swift', '-o', binary)
         slices.append(binary)
+        helper = BUILD / f'KeepMicAliveUpdater-{arch}'
+        run('xcrun', 'swiftc', '-target', f'{arch}-apple-macosx14.0', '-swift-version', '5', '-O',
+            '-framework', 'AppKit', ROOT / 'UpdateSupport.swift', ROOT / 'helpers/Updater/main.swift', '-o', helper)
+        helpers.append(helper)
     binary = macos / 'KeepMicAlive'
     run('xcrun', 'lipo', '-create', *slices, '-output', binary)
     archs = subprocess.check_output(['xcrun', 'lipo', '-archs', str(binary)], text=True).split()
@@ -44,6 +49,11 @@ def main():
 
     (APP / 'Contents' / 'Info.plist').write_bytes(plistlib.dumps(info))
     build_icon(APP)
+    helper_dir = APP / 'Contents' / 'Helpers'
+    helper_dir.mkdir()
+    helper = helper_dir / 'KeepMicAliveUpdater'
+    run('xcrun', 'lipo', '-create', *helpers, '-output', helper)
+    run('codesign', '--force', '--sign', '-', helper)
     run('codesign', '--force', '--sign', '-', APP)
     run('codesign', '--verify', '--strict', '--verbose=2', APP)
     run(binary, '--localization-report', '-AppleLanguages', '(en)')

@@ -1,6 +1,13 @@
 import AVFoundation
 import CoreAudio
 import Foundation
+setbuf(stdout, nil)
+// A disconnected or sleeping device can block inside the CoreAudio server.
+// Bound this opt-in hardware test instead of leaving it running indefinitely.
+DispatchQueue.global().asyncAfter(deadline: .now() + 60) {
+    fputs("FAIL: CoreAudio loopback timed out. Check connected devices and retry.\n", stderr)
+    exit(2)
+}
 let destination = try EnhancementRouter.destination()
 let originalOutput = SystemAudio.defaultDevice(kAudioHardwarePropertyDefaultOutputDevice)
 let originalInput = SystemAudio.inputUID
@@ -38,7 +45,18 @@ func sample(rate: Double, offset: Int) -> CMSampleBuffer {
     return result!
 }
 for rate in [48000.0, 24000.0, 16000.0] {
-    let router = try EnhancementRouter(gainDB: 12)
+    let router = try EnhancementRouter(gainDB: 0)
+    lock.lock(); peak = 0; lock.unlock()
+    for i in 0..<120 {
+        router.consume(sample(rate: rate, offset: i * Int(rate/100)))
+        Thread.sleep(forTimeInterval: 0.01)
+    }
+    Thread.sleep(forTimeInterval: 0.1)
+    lock.lock(); let baseline = peak; lock.unlock()
+    assert(router.error == nil && baseline > 0.0000001, "BlackHole must pass the calibration tone")
+    // BlackHole's own volume control may attenuate the signal. Compare against
+    // a 0 dB pass through the same route; never overwrite the user's volume.
+    router.updateProcessing(gainDB: 12, options: VoiceProcessingOptions())
     lock.lock(); peak = 0; lock.unlock()
     for i in 0..<120 {
         router.consume(sample(rate: rate, offset: i * Int(rate/100)))
@@ -46,8 +64,8 @@ for rate in [48000.0, 24000.0, 16000.0] {
     }
     Thread.sleep(forTimeInterval: 0.1)
     lock.lock(); let measured = peak; lock.unlock()
-    print("BlackHole loopback: input rate=\(rate), source peak=0.001, measured peak=\(measured), error=\(router.error ?? "none")")
-    assert(router.error == nil && measured > 0.0035 && measured < 0.0045)
+    print("BlackHole loopback: input rate=\(rate), 0 dB peak=\(baseline), +12 dB peak=\(measured), ratio=\(measured / baseline), error=\(router.error ?? "none")")
+    assert(router.error == nil && measured / baseline > 3.5 && measured / baseline < 4.5)
     #if ROUTING_TESTS
     if let alternate = originalOutput, alternate != destination {
         for cycle in 0..<3 {
@@ -60,11 +78,22 @@ for rate in [48000.0, 24000.0, 16000.0] {
             }
             lock.lock(); let recovered = peak; lock.unlock()
             assert(router.isBoundToDestination && router.error == nil)
-            assert(recovered > 0.0035 && recovered < 0.0045)
+            assert(recovered / baseline > 3.5 && recovered / baseline < 4.5)
             print("PASS: pinned output recovery cycle \(cycle + 1), rate=\(rate), peak=\(recovered)")
         }
     }
     #endif
+    // Live DSP changes must preserve the bound route and keep sending samples.
+    router.updateProcessing(gainDB: 12, options: VoiceProcessingOptions(noiseReduction: true, voiceClarity: true))
+    lock.lock(); peak = 0; lock.unlock()
+    for i in 0..<220 {
+        router.consume(sample(rate: rate, offset: i * Int(rate/100)))
+        Thread.sleep(forTimeInterval: 0.01)
+        if i == 110 { lock.lock(); peak = 0; lock.unlock() }
+    }
+    lock.lock(); let filtered = peak; lock.unlock()
+    assert(router.error == nil && filtered / measured > 0.35 && filtered / measured < 1.2)
+    print("PASS: denoise + clarity loopback, rate=\(rate), peak=\(filtered)")
     router.stop()
 }
 AudioDeviceStop(destination, proc)

@@ -22,9 +22,48 @@ struct PanelState {
     var loginPending: Bool
     var restore: Bool
     var boostStoppedNotice: Bool = false
+    var voiceOptions = VoiceProcessingOptions()
 }
 private final class PanelDocument: NSView {
     override var isFlipped: Bool { true }
+}
+
+private final class VersionBadge: NSView {
+    init(version: String) {
+        super.init(frame: .zero)
+        let label = NSTextField(labelWithString: "v" + version)
+        label.font = .monospacedDigitSystemFont(ofSize: 10, weight: .medium)
+        label.textColor = .secondaryLabelColor
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.setAccessibilityLabel(L("update_current_version", version))
+        addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
+            label.centerYAnchor.constraint(equalTo: centerYAnchor), heightAnchor.constraint(equalToConstant: 19)
+        ])
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.quaternaryLabelColor.withAlphaComponent(0.1).setFill()
+        NSBezierPath(roundedRect: bounds, xRadius: 5, yRadius: 5).fill()
+    }
+    override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); needsDisplay = true }
+}
+
+private final class UpdateButton: NSButton {
+    // NSButton's bezel alignment insets otherwise make a 32 pt height
+    // constraint produce a taller drawing area, stretching the circle.
+    override var alignmentRectInsets: NSEdgeInsets { NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0) }
+    var showsDownload = false { didSet { needsDisplay = true } }
+    override func draw(_ dirtyRect: NSRect) {
+        if showsDownload {
+            NSColor.controlAccentColor.setFill()
+            NSBezierPath(ovalIn: bounds.insetBy(dx: 1, dy: 1)).fill()
+        }
+        super.draw(dirtyRect)
+    }
+    override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); needsDisplay = true }
 }
 
 /// Keep the symbol and label together instead of stretching them across the tile.
@@ -86,6 +125,8 @@ final class ControlPanel: NSViewController {
     var chooseDevice: ((String) -> Void)?
     var toggleEnhancement: (() -> Void)?
     var chooseGain: ((Float) -> Void)?
+    var toggleNoiseReduction: (() -> Void)?
+    var toggleVoiceClarity: (() -> Void)?
     var retry: (() -> Void)?
     var toggleLogin: (() -> Void)?
     var toggleRestore: (() -> Void)?
@@ -95,6 +136,7 @@ final class ControlPanel: NSViewController {
     var recheck: (() -> Void)?
     var loginSettings: (() -> Void)?
     var quit: (() -> Void)?
+    var checkOrDownloadUpdate: (() -> Void)?
 
     private let source = NSScrollView()
     private let deviceStack = NSStackView()
@@ -117,6 +159,8 @@ final class ControlPanel: NSViewController {
     private let boost = NSSwitch()
     private let gain = NSSegmentedControl(labels: [L("panel_gain_low"), L("panel_gain_mid"), L("panel_gain_high")], trackingMode: .selectOne, target: nil, action: nil)
     private let route = NSTextField(wrappingLabelWithString: "")
+    private let noiseReduction = DeviceTile(PanelDevice(id: "noise", name: L("panel_noise_reduction"), enabled: true))
+    private let voiceClarity = DeviceTile(PanelDevice(id: "clarity", name: L("panel_voice_clarity"), enabled: true))
     private let driver = NSTextField(wrappingLabelWithString: "")
     private let login = DeviceTile(PanelDevice(id: "login", name: L("launch_at_login"), enabled: true))
     private let restore = DeviceTile(PanelDevice(id: "restore", name: L("restore_on_launch"), enabled: true))
@@ -130,8 +174,13 @@ final class ControlPanel: NSViewController {
     var resize: ((NSSize) -> Void)?
     private let scroll = NSScrollView()
     private var deviceSnapshot: [PanelDevice] = []
+    private let updateButton = UpdateButton(title: "", target: nil, action: nil)
+    private let updateCaption = NSTextField(labelWithString: "")
+    private let updateProgress = NSProgressIndicator()
+    private var releaseState = UpdateState()
+    private var installationState = InstallationState.idle
 
-    private enum Action: Int { case keep, boost, retry, login, restore, help, boostHelp, install, recheck, loginSettings, quit, closeNote, virtualDevices }
+    private enum Action: Int { case keep, boost, retry, login, restore, help, boostHelp, install, recheck, loginSettings, quit, closeNote, virtualDevices, noise, clarity, update }
 
     override func loadView() {
         view = NSView(frame: NSRect(x: 0, y: 0, width: 380, height: 570))
@@ -152,8 +201,29 @@ final class ControlPanel: NSViewController {
         appIcon.widthAnchor.constraint(equalToConstant: 28).isActive = true
         appIcon.heightAnchor.constraint(equalToConstant: 28).isActive = true
         status.font = .systemFont(ofSize: 11); status.textColor = .secondaryLabelColor
-        let identity = NSStackView(views: [brand, status]); identity.orientation = .vertical; identity.alignment = .leading; identity.spacing = 2
-        let header = NSStackView(views: [appIcon, identity]); header.spacing = 9; header.alignment = .centerY; add(header)
+        let title = NSStackView(views: [brand, VersionBadge(version: UpdateChecker.installedVersion)])
+        title.spacing = 7; title.alignment = .centerY
+        let identity = NSStackView(views: [title, status]); identity.orientation = .vertical; identity.alignment = .leading; identity.spacing = 3
+        bind(updateButton, .update)
+        updateButton.isBordered = false; updateButton.setButtonType(.momentaryPushIn)
+        updateButton.imagePosition = .imageOnly
+        updateButton.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 17, weight: .semibold)
+        updateButton.widthAnchor.constraint(equalToConstant: 32).isActive = true
+        updateButton.heightAnchor.constraint(equalToConstant: 32).isActive = true
+        updateProgress.style = .spinning; updateProgress.controlSize = .small
+        updateProgress.translatesAutoresizingMaskIntoConstraints = false
+        updateButton.addSubview(updateProgress)
+        NSLayoutConstraint.activate([updateProgress.centerXAnchor.constraint(equalTo: updateButton.centerXAnchor), updateProgress.centerYAnchor.constraint(equalTo: updateButton.centerYAnchor)])
+        updateCaption.font = .monospacedDigitSystemFont(ofSize: 9, weight: .medium)
+        updateCaption.textColor = .secondaryLabelColor; updateCaption.alignment = .center
+        updateCaption.lineBreakMode = .byTruncatingMiddle
+        updateCaption.heightAnchor.constraint(equalToConstant: 12).isActive = true
+        updateCaption.widthAnchor.constraint(equalToConstant: 48).isActive = true
+        let updates = NSStackView(views: [updateButton, updateCaption])
+        updates.orientation = .vertical; updates.alignment = .centerX; updates.spacing = 1
+        updates.widthAnchor.constraint(equalToConstant: 48).isActive = true
+        let header = NSStackView(views: [appIcon, identity, NSView(), updates]); header.spacing = 9; header.alignment = .centerY; add(header)
+        updateReleaseState(UpdateState())
 
         bind(keep, .keep); keep.setAccessibilityLabel(L("panel_keep"))
         source.drawsBackground = false; source.hasVerticalScroller = true; source.autohidesScrollers = true
@@ -195,12 +265,16 @@ final class ControlPanel: NSViewController {
 
         bind(boost, .boost); boost.setAccessibilityLabel(L("panel_boost"))
         gain.target = self; gain.action = #selector(selectGain); gain.setAccessibilityLabel(L("panel_gain"))
+        bind(noiseReduction, .noise); bind(voiceClarity, .clarity)
+        noiseReduction.toolTip = L("panel_noise_hint"); voiceClarity.toolTip = L("panel_clarity_hint")
+        let processing = NSStackView(views: [deviceSurface(noiseReduction), deviceSurface(voiceClarity)])
+        processing.distribution = .fillEqually; processing.spacing = 8
         route.font = .systemFont(ofSize: 11); route.textColor = .secondaryLabelColor
         driver.font = .systemFont(ofSize: 11); driver.textColor = .secondaryLabelColor
         installButton = button("panel_install", .install)
         let setup = NSStackView(views: [installButton, button("panel_recheck", .recheck), button("panel_test", .boostHelp)])
         setup.orientation = .horizontal; setup.spacing = 6
-        add(card([controlHeader(icon: boostIcon, symbol: "waveform", title: L("panel_boost"), subtitle: L("panel_boost_short"), control: boost), gain, route, driver, setup]))
+        add(card([controlHeader(icon: boostIcon, symbol: "waveform", title: L("panel_boost"), subtitle: L("panel_boost_short"), control: boost), gain, processing, label(L("panel_processing_hint"), size: 11, secondary: true), route, driver, setup]))
 
         startupGroup.orientation = .vertical; startupGroup.alignment = .leading; startupGroup.spacing = 10
         bind(login, .login); bind(restore, .restore)
@@ -286,6 +360,9 @@ final class ControlPanel: NSViewController {
         switch action {
         case .keep: toggleCapture?()
         case .boost: toggleEnhancement?()
+        case .noise: toggleNoiseReduction?()
+        case .clarity: toggleVoiceClarity?()
+        case .update: checkOrDownloadUpdate?()
         case .retry: retry?()
         case .login: toggleLogin?()
         case .restore: toggleRestore?()
@@ -392,6 +469,8 @@ final class ControlPanel: NSViewController {
         boost.isEnabled = state.canToggle && (state.driverInstalled || state.enhancement)
         gain.selectedSegment = [Float(6), 12, 18].firstIndex(of: state.gain) ?? 1
         gain.isEnabled = state.enhancement
+        noiseReduction.update(selected: state.voiceOptions.noiseReduction, enabled: state.enhancement, uncheckedSymbol: "waveform.path")
+        voiceClarity.update(selected: state.voiceOptions.voiceClarity, enabled: state.enhancement, uncheckedSymbol: "person.wave.2")
         driver.stringValue = L(state.driverInstalled ? "panel_driver_ready" : "panel_driver_missing")
         installButton.isHidden = state.driverInstalled
         route.stringValue = L(state.enhancement ? (state.sending ? "panel_route_active" : "panel_route_pending") : "panel_route_off")
@@ -412,12 +491,56 @@ final class ControlPanel: NSViewController {
         fitPanel()
         noteGroup.scrollToVisible(noteGroup.bounds)
     }
+    func updateReleaseState(_ state: UpdateState) {
+        releaseState = state
+        renderUpdateControl()
+    }
+    func updateInstallationState(_ state: InstallationState) {
+        installationState = state
+        renderUpdateControl()
+    }
+    private func renderUpdateControl() {
+        let state = releaseState
+        // Does not call fitPanel or replace the microphone's runtime status.
+        let download = state.available
+        let loading = (state.checking && download == nil) || installationState.busy
+        updateButton.showsDownload = download != nil && !loading
+        updateButton.image = loading ? nil : NSImage(systemSymbolName: download != nil ? "arrow.down.to.line" : "arrow.triangle.2.circlepath", accessibilityDescription: nil)
+        updateButton.contentTintColor = download != nil ? .white : .labelColor
+        updateButton.isEnabled = !loading
+        updateProgress.isHidden = !loading
+        if loading { updateProgress.startAnimation(nil) } else { updateProgress.stopAnimation(nil) }
+        let hint: String
+        if installationState.busy {
+            switch installationState {
+            case .downloading(let percent):
+                updateCaption.stringValue = "\(percent)%"; hint = L("update_downloading", String(percent))
+            case .verifying: updateCaption.stringValue = L("update_verifying_short"); hint = L("update_verifying")
+            default: updateCaption.stringValue = L("update_restarting_short"); hint = L("update_restarting")
+            }
+        } else if case .failed(let error) = installationState {
+            updateCaption.stringValue = L("update_retry_short"); hint = error
+        } else if let download {
+            updateCaption.stringValue = "v" + download.version
+            hint = L("update_download", download.version)
+        } else if loading {
+            updateCaption.stringValue = L("update_checking_short"); hint = L("update_checking")
+        } else if let error = state.error {
+            updateCaption.stringValue = L("update_retry_short"); hint = error + "\n" + L("update_check")
+        } else {
+            updateCaption.stringValue = state.checked ? L("update_latest_short") : ""
+            hint = state.checked ? L("update_latest", UpdateChecker.installedVersion) : L("update_check")
+        }
+        updateButton.toolTip = hint; updateButton.setAccessibilityLabel(hint)
+        updateCaption.toolTip = hint
+    }
     static func runTests() {
         _ = NSApplication.shared
         let panel = ControlPanel()
         var state = PanelState(devices: [], selectedID: nil, systemName: "None", status: "Stopped", requested: false, canToggle: true, enhancement: false, gain: 12, driverInstalled: false, sending: false, canRetry: false, loginState: .off, loginPending: false, restore: false)
         panel.update(state)
         assert(!panel.boost.isEnabled && !panel.installButton.isHidden)
+        assert(!panel.noiseReduction.isEnabled && !panel.voiceClarity.isEnabled)
         assert(!panel.keep.isEnabled && panel.tiles.isEmpty)
         state.devices = [PanelDevice(id: "mic", name: "Test microphone", enabled: true)]
         state.selectedID = "mic"; state.driverInstalled = true
@@ -446,9 +569,19 @@ final class ControlPanel: NSViewController {
         panel.update(state)
         assert(panel.gain.isEnabled && panel.gain.selectedSegment == 2)
         assert(panel.keep.state == .on && panel.boost.state == .on)
+        var noiseClicks = 0, clarityClicks = 0
+        panel.toggleNoiseReduction = { noiseClicks += 1 }
+        panel.toggleVoiceClarity = { clarityClicks += 1 }
+        panel.noiseReduction.performClick(nil); panel.voiceClarity.performClick(nil)
+        assert(noiseClicks == 1 && clarityClicks == 1)
+        state.voiceOptions = VoiceProcessingOptions(noiseReduction: true, voiceClarity: true)
+        panel.update(state)
+        assert(panel.noiseReduction.state == .on && panel.voiceClarity.state == .on)
+        assert(panel.view.frame.width == 380)
         state.requested = false; state.enhancement = false; state.boostStoppedNotice = true
         panel.update(state)
         assert(panel.keep.state == .off && panel.boost.state == .off)
+        assert(!panel.noiseReduction.isEnabled && !panel.voiceClarity.isEnabled)
         assert(!panel.captureHint.isHidden)
         state.enhancement = true; state.requested = true; state.boostStoppedNotice = false
         panel.update(state)
@@ -466,7 +599,41 @@ final class ControlPanel: NSViewController {
         state.driverInstalled = false
         panel.update(state)
         assert(panel.boost.isEnabled) // An unavailable driver must not prevent switching boost off.
+        let headerSize = panel.contentStack.arrangedSubviews[0].fittingSize
+        var updateClicks = 0
+        panel.checkOrDownloadUpdate = { updateClicks += 1 }
+        panel.updateReleaseState(UpdateState(checking: true))
+        assert(!panel.updateButton.isEnabled && !panel.updateProgress.isHidden)
+        panel.updateReleaseState(UpdateState(checked: true))
+        assert(panel.updateButton.isEnabled && !panel.updateButton.showsDownload)
+        assert(panel.updateCaption.stringValue == L("update_latest_short"))
+        panel.updateButton.performClick(nil)
+        assert(updateClicks == 1)
+        let release = ReleaseUpdate(version: "1.6.0", downloadURL: URL(string: "https://github.com/ababdotai/KeepMicAlive/releases/download/v1.6.0/KeepMicAlive-universal.dmg")!)
+        panel.updateReleaseState(UpdateState(available: release, checked: true))
+        panel.view.layoutSubtreeIfNeeded()
+        assert(panel.updateButton.showsDownload && panel.updateCaption.stringValue == "v1.6.0")
+        assert(abs(panel.updateButton.bounds.width - panel.updateButton.bounds.height) < 0.5, "Update button must stay square: \(panel.updateButton.bounds)")
+        assert(panel.updateButton.contentTintColor == .white)
+        panel.updateButton.performClick(nil)
+        assert(updateClicks == 2)
+        panel.updateReleaseState(UpdateState(available: release, error: "Offline"))
+        assert(panel.updateButton.showsDownload) // Preserve a known download while offline.
+        panel.updateReleaseState(UpdateState(error: "Offline"))
+        assert(!panel.updateButton.showsDownload && panel.updateButton.isEnabled)
+        assert(panel.contentStack.arrangedSubviews[0].fittingSize == headerSize)
+        assert(panel.status.stringValue == state.status) // Never overwrite audio status.
+        panel.updateInstallationState(.downloading(42))
+        assert(!panel.updateButton.isEnabled && panel.updateCaption.stringValue == "42%")
+        panel.updateInstallationState(.verifying)
+        assert(!panel.updateButton.isEnabled && !panel.updateProgress.isHidden)
+        panel.updateInstallationState(.restarting)
+        assert(!panel.updateButton.isEnabled)
+        panel.updateInstallationState(.failed("Download failed"))
+        assert(panel.updateButton.isEnabled && panel.updateCaption.stringValue == L("update_retry_short"))
+        panel.updateInstallationState(.idle)
         print("PASS: panel missing-driver setup, device selection, gain states and inline help")
+        print("PASS: update button actions, loading, download, offline state and stable header layout")
     }
 
 }

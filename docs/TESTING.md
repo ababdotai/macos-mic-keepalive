@@ -78,3 +78,12 @@ On the closed-lid AirPods reproduction, after binding BlackHole the engine outpu
 2026-11-25: with the lid closed and AirPods capture active, loopback passed at 16/24/48 kHz, including three output-route invalidations per rate. The hardware format differed from the stale client format (stereo/48 kHz versus mono/24 kHz). This verifies routing and resampling, not dictation accuracy.
 
 Virtual-device disclosure uses a header above its own grid: down-circle when collapsed, up-circle when expanded. Check click and keyboard activation, hidden/empty groups, automatic expansion when selecting a virtual device externally, fixed panel width, and that the popover stays open.
+
+
+## In-app GitHub updates
+
+`make test` covers numeric version ordering, stable releases, asset URLs, duplicate requests, eight-hour scheduling decisions, offline handling, API quota fallback, download UI states, checksum tampering, archive traversal/links/expansion, bundle identity/signatures, replacement rollback and one-use capture-state transfer.
+
+The updater prefers the version-pinned ZIP plus `SHA256SUMS.txt`. It does not remove quarantine attributes or change Gatekeeper settings. Download and verification keep capture running. A separate signed helper waits for the old process to exit, replaces the app, launches it, and retains the backup until startup is acknowledged. Ordinary relaunch behavior is unchanged; only an explicit update resumes enhancement.
+
+For an end-to-end test, install a previous-version build with the updater, publish a newer release, check for updates in the installed app, and click the accent download button. Verify the downloaded asset hash, new installed version, process restart and restored input settings. `~/Library/Caches/local.macos-mic-keepalive/Updates/last-update.txt` records successful completion. An older public build without the installer must first be upgraded manually.

@@ -17,7 +17,7 @@
 "title" = "KeepMicAlive";
 "ok" = "Got it";
 "starting" = "Starting: %@…";
-"instructions" = "Everyday use\nChoose a physical mic and turn on “Keep microphone ready” to reduce wake-up delays. Turning keep-alive off also disables boost and releases the mic. Quitting releases it too.\n\nSwitching devices\nSelecting a mic also changes the system input. Normal keep-alive follows system input changes; whisper boost stays with the selected mic. Apps with their own input selection must be changed separately.\n\nAutomatic recovery\nCapture pauses during sleep or disconnection and resumes after wake or reconnection of the same mic. Stopping manually cancels recovery.\n\nStartup\n“Launch at login” starts the app. “Restore previous keep-alive on launch” resumes capture only if keep-alive was on when you last quit. Both settings are independent and off by default. If login approval is needed, follow the link to System Settings. Place the app in Applications first.\n\nPrivacy and notes\nNo audio is saved or uploaded. Bluetooth capture may affect headphone quality and battery life. Language follows macOS; relaunch after changing it.";
+"instructions" = "Everyday use\nChoose a physical mic and turn on “Keep microphone ready” to reduce wake-up delays. Turning keep-alive off also disables boost and releases the mic. Quitting releases it too.\n\nSwitching devices\nSelecting a mic also changes the system input. Normal keep-alive follows system input changes; whisper boost stays with the selected mic. Apps with their own input selection must be changed separately.\n\nAutomatic recovery\nCapture pauses during sleep or disconnection and resumes after wake or reconnection of the same mic. Stopping manually cancels recovery.\n\nStartup\n“Launch at login” starts the app. “Restore previous keep-alive on launch” resumes capture only if keep-alive was on when you last quit. Both settings are independent and off by default. If login approval is needed, follow the link to System Settings. Place the app in Applications first.\n\nPrivacy and notes\nVersion checks contact public GitHub Releases at launch and every 8 hours. No audio is saved or uploaded. Bluetooth capture may affect headphone quality and battery life. Language follows macOS; relaunch after changing it.";
 "retry_now" = "Retry / check microphone access";
 "launch_at_login" = "Launch at login";
 "login_approval" = "Open Login Items settings…";
@@ -50,7 +50,7 @@
 "enhance_failed" = "Whisper boost output failed. Check BlackHole 2ch.";
 "enhance_running" = "Boost sending → BlackHole 2ch";
 "enhance_help" = "How to test whisper boost…";
-"enhance_instructions" = "1. Enable boost\nChoose a physical mic in this app. Turning on “Boost quiet speech” automatically enables keep-alive. Start at +12 dB.\n\n2. Set up your dictation app\nChoose BlackHole 2ch as its microphone. If it has no device selector, change the system input to BlackHole instead; leave boost enabled with the original mic selected here. Keep music output unchanged.\n\n3. Compare results\nRead the same sentence at the same volume using the physical mic and then BlackHole. Reduce gain if noise is too loud; increase it if speech is still too quiet. Boost also amplifies noise and does not use AI denoising. Compare actual recognition results.\n\n4. Finish\nSwitch your dictation app (and system input, if changed) back to the physical mic before turning boost off. Turning boost off preserves keep-alive; turning keep-alive off disables both. Turning boost off or quitting stops this app’s audio to BlackHole.\n\nAfter relaunch, boost is off and gain resets to +12 dB. No audio is saved or uploaded. AirPods capture may still affect music quality.";
+"enhance_instructions" = "1. Enable boost\nChoose a physical mic in this app. Turning on “Boost quiet speech” automatically enables keep-alive. Start at +12 dB.\n\n2. Set up your dictation app\nChoose BlackHole 2ch as its microphone. If it has no device selector, change the system input to BlackHole instead; leave boost enabled with the original mic selected here. Keep music output unchanged.\n\n3. Compare results\nRead the same sentence at the same volume using the physical mic and then BlackHole. Reduce gain if noise is too loud; increase it if speech is still too quiet. For an A/B test, keep BlackHole and the same gain selected. Try “Gentle denoise”, then “Voice clarity”. Denoise reduces steady noise; clarity cuts rumble and gently emphasizes speech. If quiet word endings disappear or hiss gets stronger, turn that option off. These are local filters, not AI speech separation; recognition gains need testing.\n\n4. Finish\nSwitch your dictation app (and system input, if changed) back to the physical mic before turning boost off. Turning boost off preserves keep-alive; turning keep-alive off disables both. Turning boost off or quitting stops this app’s audio to BlackHole.\n\nAfter a normal relaunch, boost and both filters are off; gain resets to +12 dB. In-app updates resume your current audio settings. No audio is saved or uploaded. AirPods capture may still affect music quality.";
 "panel_keep" = "Keep microphone ready";
 "panel_boost" = "Boost quiet speech";
 "panel_microphone" = "Microphone";
@@ -72,7 +72,7 @@
 "panel_install_hint" = "Only whisper boost needs BlackHole. Normal keep-alive does not.\n\n1. Download and install the 2ch version from the official website opening next.\n2. Follow the installer’s approval or restart instructions.\n3. Return here and click “Check again”.";
 "panel_keep_short" = "Turn off to stop capture and boost";
 "panel_boost_short" = "Amplifies speech and enables keep-alive";
-"panel_restore_hint" = "Restores keep-alive only. Whisper boost stays off after relaunch.";
+"panel_restore_hint" = "Normal launches restore keep-alive only. Updates resume current audio settings.";
 "panel_gain_low" = "Low · +6 dB";
 "panel_gain_mid" = "Mid · +12 dB";
 "panel_gain_high" = "High · +18 dB";
@@ -89,3 +89,33 @@
 
 "panel_virtual_expand" = "Show virtual devices";
 "panel_virtual_collapse" = "Hide virtual devices";
+
+"panel_noise_reduction" = "Gentle denoise";
+"panel_voice_clarity" = "Voice clarity";
+"panel_noise_hint" = "Reduces steady background noise, with at most 6 dB attenuation per frequency band. No hard noise gate.";
+"panel_clarity_hint" = "Cuts low rumble below 80 Hz and gently boosts speech presence around 2.2 kHz.";
+"panel_processing_hint" = "Optional · Denoise reduces steady noise; clarity brings speech forward. Active only while boost is on.";
+
+"update_current_version" = "Installed version %@";
+"update_check" = "Check for updates";
+"update_checking" = "Checking GitHub Releases…";
+"update_checking_short" = "Checking";
+"update_download" = "Download and install v%@ from GitHub Releases, then restart and restore current audio settings.";
+"update_latest_short" = "Latest";
+"update_latest" = "v%@ is up to date. Click to check again.";
+"update_retry_short" = "Retry";
+"update_network_error" = "Could not check for updates. Check your connection and retry.";
+"update_invalid_response" = "Could not read the release information. Try again later.";
+"update_missing_installer" = "A new version exists, but its installer is not ready. Try again later.";
+"update_no_release" = "No published release is available yet.";
+"update_rate_limited" = "GitHub is temporarily unavailable or rate limited. Try again later.";
+"update_version_unknown" = "Cannot read the installed version. Use the packaged app to check for updates.";
+"update_open_failed" = "Could not open the GitHub download link.";
+"update_downloading" = "Downloading update · %@%%";
+"update_verifying_short" = "Verifying";
+"update_verifying" = "Verifying and preparing the update…";
+"update_restarting_short" = "Restarting";
+"update_restarting" = "Installing update and restarting. Current audio settings will resume.";
+"update_install_failed" = "Update failed. Your existing app is retained. %@";
+"update_move_app" = "Move the app to a writable Applications folder before updating.";
+"update_manual_installer" = "This release requires manual installation. Open the downloaded DMG and replace the app.";

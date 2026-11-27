@@ -33,7 +33,7 @@ Keeps an audio stream open on your chosen microphone. **No recordings. No upload
 
 Open the DMG, drag **KeepMicAlive** into **Applications**, and launch it. If upgrading from Mic KeepAlive, quit and remove the old app to avoid duplicates; settings use the same app identifier. Allow microphone access, then choose your mic and start keep-alive from the menu bar. Use the same mic in your dictation app.
 
-**[1.5.1](https://github.com/ababdotai/KeepMicAlive/releases/tag/v1.5.1):** renamed to KeepMicAlive. Includes the native control panel, optional whisper boost, and AirPods / BlackHole routing fix.
+**[1.5.2](https://github.com/ababdotai/KeepMicAlive/releases/tag/v1.5.2):** one-click download, install and restart from GitHub Releases, plus optional gentle denoise and voice clarity.
 
 Enable **Launch at login** and/or **Restore previous keep-alive on launch** in the menu if needed. Restore applies only when keep-alive was on at the previous exit. macOS may ask you to approve the login item.
 
@@ -45,6 +45,7 @@ Enable **Launch at login** and/or **Restore previous keep-alive on launch** in t
 - **Bluetooth-first:** use AirPods or a DJI Bluetooth mic. USB and other macOS inputs work too.
 - **Frequent devices first:** remembers successful manual switches, with recent use breaking ties. Controls stay in an open panel; click outside to dismiss.
 - **Readable status:** a plain mic means available; a shield means keep-alive is healthy; a plus above it means boost is running. The mic fills with the input level, an hourglass means recovery is pending, and a disconnect badge means the target mic is unavailable. No menu bar text. Turning keep-alive off also disables whisper boost, releases the mic and stops level monitoring.
+- **Release updates:** version badge and update button in the header. Checks GitHub at launch and every 8 hours; a download button appears for a newer stable release. Click to download, verify, install and restart automatically. Your current audio settings resume after an update; checks and downloads do not interrupt capture.
 - **Your language:** follows macOS—English or Chinese.
 - **Automatic recovery:** sleep or disconnect pauses capture; wake or reconnect the same mic to resume. Stop cancels recovery.
 - **Optional startup:** launch at login and restore previous keep-alive independently. Both default off.
@@ -55,4 +56,4 @@ Enable **Launch at login** and/or **Restore previous keep-alive on launch** in t
 
 <sub>Build from source (Xcode 26+ for icon compilation): <code>make run</code> · Test: <code>make test</code> · Package: <code>make release</code></sub>
 
-**Optional whisper boost:** install BlackHole 2ch using the panel’s official download link, enable boost, then select **BlackHole 2ch** in your dictation app. Boost enables keep-alive; stopping keep-alive turns both off. After stopping boost, switch dictation back to your physical mic. BlackHole is not bundled. No AI denoising; recognition gains are unproven. [Setup & comparison guide / 试用说明](docs/WHISPER-BOOST.md).
+**Optional whisper boost:** install BlackHole 2ch using the panel’s official download link, enable boost, then select **BlackHole 2ch** in your dictation app. Boost enables keep-alive; stopping keep-alive turns both off. After stopping boost, switch dictation back to your physical mic. BlackHole is not bundled. Optional **Gentle denoise** reduces steady noise; **Voice clarity** cuts rumble and emphasizes speech before gain. Both start off for easy A/B testing. Local DSP, no AI speech separation; recognition gains are unproven. [Setup & comparison guide / 试用说明](docs/WHISPER-BOOST.md).
